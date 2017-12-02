@@ -22,6 +22,12 @@ import org.apache.kafka.clients.producer.RecordMetadata;
 /**
  * The future result of a record send
  */
+/**
+ * FutureRecordMetadata 是一个 Future<RecordMetadata> 的强化实现.
+ * 其包含了 ProduceRequestResult 对象, 其中有 TopicPartition 以及 baseOffset 信息.
+ * 还有 relativeOffset(?), serializedKeySize, serializedValueSize, checksum 信息
+ * 为什么需要自己单独实现 FutureRecordMetadata 而不用 Future<RecordMetadata> ?
+ */
 public final class FutureRecordMetadata implements Future<RecordMetadata> {
 
     private final ProduceRequestResult result;
@@ -65,13 +71,15 @@ public final class FutureRecordMetadata implements Future<RecordMetadata> {
         return valueOrError();
     }
 
+    // 由 FutureRecordMetadata 获取 RecordMetadata 信息, 或者抛出异常
     RecordMetadata valueOrError() throws ExecutionException {
         if (this.result.error() != null)
             throw new ExecutionException(this.result.error());
         else
             return value();
     }
-    
+
+    // 由 FutureRecordMetadata 获取 RecordMetadata 信息.
     RecordMetadata value() {
         return new RecordMetadata(result.topicPartition(), this.result.baseOffset(), this.relativeOffset,
                                   timestamp(), this.checksum, this.serializedKeySize, this.serializedValueSize);
