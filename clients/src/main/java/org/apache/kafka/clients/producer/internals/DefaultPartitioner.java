@@ -35,6 +35,13 @@ import org.apache.kafka.common.utils.Utils;
  * <li>If no partition is specified but a key is present choose a partition based on a hash of the key
  * <li>If no partition or key is present choose a partition in a round-robin fashion
  */
+/**
+ * 默认的partition策略, 没有什么值得细说, 由2个步骤组成:
+ * 1. 如果用户已为record显式地设置了partition, 那么就用用户设置的partition
+ * 2. 如果record没有设置partition, 那么由默认的DefaultPartitioner来计算record的partition
+     1). 如果record有key, 就用 (该key的murmur2 hash值 % partitions.size()) 来确定partition
+     2). 如果record没有key, 就用 (该topic的record计数器 % availablePartitions.size()) 来确定partition
+ */
 public class DefaultPartitioner implements Partitioner {
 
     private final ConcurrentMap<String, AtomicInteger> topicCounterMap = new ConcurrentHashMap<>();
