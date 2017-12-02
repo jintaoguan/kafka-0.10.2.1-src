@@ -32,6 +32,14 @@ import java.util.List;
  * A container that holds the list {@link org.apache.kafka.clients.producer.ProducerInterceptor}
  * and wraps calls to the chain of custom interceptors.
  */
+/**
+ * ProducerInterceptors 是一个 List<ProducerInterceptor<K, V>> 用于截获发送的数据并做处理.
+ * 用户可以自己实现自己的 ProducerInterceptor 并且实现自己的:
+ * 1. onSend() 发送数据 ProducerRecord 之前的数据截取处理.
+ * 2. onAcknowledgement() 发送数据之后对返回的 RecordMetadata 以及 Exception 处理.
+ * 3. onSendError() 发送数据失败之后 对 ProducerRecord, TopicPartition 以及 Exception 进行处理.
+ * 4. close() 关闭 ProducerInterceptor 的处理.
+ */
 public class ProducerInterceptors<K, V> implements Closeable {
     private static final Logger log = LoggerFactory.getLogger(ProducerInterceptors.class);
     private final List<ProducerInterceptor<K, V>> interceptors;
