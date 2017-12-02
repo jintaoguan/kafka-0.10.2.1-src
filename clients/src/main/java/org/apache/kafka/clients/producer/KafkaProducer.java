@@ -436,6 +436,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
     @Override
     public Future<RecordMetadata> send(ProducerRecord<K, V> record, Callback callback) {
         // intercept the record, which can be potentially modified; this method does not throw exceptions
+        // 发送record之前, 先调用ProducerInterceptors的onSend()方法，截取发送的record做处理，用户可以自定义onSend(record)方法
         ProducerRecord<K, V> interceptedRecord = this.interceptors == null ? record : this.interceptors.onSend(record);
         return doSend(interceptedRecord, callback);
     }
@@ -447,9 +448,12 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         TopicPartition tp = null;
         try {
             // first make sure the metadata for the topic is available
+            // 发送数据前，更新producer端的metadata数据，非常重要
             ClusterAndWaitTime clusterAndWaitTime = waitOnMetadata(record.topic(), record.partition(), maxBlockTimeMs);
             long remainingWaitMs = Math.max(0, maxBlockTimeMs - clusterAndWaitTime.waitedOnMetadataMs);
             Cluster cluster = clusterAndWaitTime.cluster;
+
+            // 序列化key和value
             byte[] serializedKey;
             try {
                 serializedKey = keySerializer.serialize(record.topic(), record.key());
@@ -467,15 +471,31 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                         " specified in value.serializer");
             }
 
+            // 计算record的partition的过程, 由3个步骤组成
+            // 1. 如果用户已为record显式地设置了partition, 那么就用用户设置的partition
+            // 2. 如果record没有设置partition, 那么由默认的DefaultPartitioner来计算record的partition
+            //    1). 如果record有key, 就用 (该key的murmur2 hash值 % partitions.size()) 来确定partition
+            //    2). 如果record没有key, 就用 (该topic的record计数器 % availablePartitions.size()) 来确定partition
             int partition = partition(record, serializedKey, serializedValue, cluster);
+
+            // 计算序列化之后的record(key/value pair)所占的字节数
             int serializedSize = Records.LOG_OVERHEAD + Record.recordSize(serializedKey, serializedValue);
             ensureValidRecordSize(serializedSize);
+
+            // 创建TopicPartition对象，用于获得RecordAccumulator的buffer中的batch队列
             tp = new TopicPartition(record.topic(), partition);
             long timestamp = record.timestamp() == null ? time.milliseconds() : record.timestamp();
             log.trace("Sending record {} with callback {} to topic {} partition {}", record, callback, record.topic(), partition);
+
             // producer callback will make sure to call both 'callback' and interceptor callback
+            // 这里新建的InterceptorCallback对象既包含了Interceptor对象(实现了onSend(), onAcknowledgement()和onSendError()),
+            // 也包含了Callback对象(实现了onCompletion()). 将这个InterceptorCallback对象传给RecordAccumulator, 由它执行
             Callback interceptCallback = this.interceptors == null ? callback : new InterceptorCallback<>(callback, this.interceptors, tp);
+
+            // 把序列化之后的key与value放入RecordAccumulator的buffer中
             RecordAccumulator.RecordAppendResult result = accumulator.append(tp, timestamp, serializedKey, serializedValue, interceptCallback, remainingWaitMs);
+
+            // 如果有batch存满了，或者原batch剩余空间不足而创建了新的batch，都要唤醒sender线程并发送已满的batch中的数据
             if (result.batchIsFull || result.newBatchCreated) {
                 log.trace("Waking up the sender since topic {} partition {} is either full or getting a new batch", record.topic(), partition);
                 this.sender.wakeup();
@@ -612,6 +632,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
      *
      * @throws InterruptException If the thread is interrupted while blocked
      */
+    // flush()将RecordAccumulator对象中的buffer中的数据通过sender线程全部发送给服务器
     @Override
     public void flush() {
         log.trace("Flushing accumulated records in producer.");
@@ -749,6 +770,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
      * if the record has partition returns the value otherwise
      * calls configured partitioner class to compute the partition.
      */
+    // 计算record要发送的partition, 可以在DefaultPartitioner中查看partition()的实现
     private int partition(ProducerRecord<K, V> record, byte[] serializedKey, byte[] serializedValue, Cluster cluster) {
         Integer partition = record.partition();
         return partition != null ?
@@ -805,6 +827,9 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
      * A callback called when producer request is complete. It in turn calls user-supplied callback (if given) and
      * notifies producer interceptors about the request completion.
      */
+    // 保存了两个对象(感觉这里设计比较hacky):
+    // 1. Callback(实现了onCompletion())
+    // 2. ProducerInterceptors(实现了onSend(), onAcknowledgement()和onSendError())
     private static class InterceptorCallback<K, V> implements Callback {
         private final Callback userCallback;
         private final ProducerInterceptors<K, V> interceptors;
