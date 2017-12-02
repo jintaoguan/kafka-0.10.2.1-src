@@ -57,6 +57,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * The accumulator uses a bounded amount of memory and append calls will block when that memory is exhausted, unless
  * this behavior is explicitly disabled.
  */
+/**
+ * RecordAccumulator 对象是 KafkaProducer 对象的buffer区域的管理者.
+ */
 public final class RecordAccumulator {
 
     private static final Logger log = LoggerFactory.getLogger(RecordAccumulator.class);
@@ -68,9 +71,13 @@ public final class RecordAccumulator {
     private final CompressionType compression;
     private final long lingerMs;
     private final long retryBackoffMs;
+    // free 是一个 Kafka 自己管理的 BufferPool, 用于管理空闲的 buffer 资源, 非常重要.
     private final BufferPool free;
     private final Time time;
+    // batches 是一个 ConcurrentMap<TopicPartition, ArrayDeque<RecordBatch>>, 保证其线程安全和多线程效率
+    // 根据 TopicPartition 组织 RecordBatch 队列, 用来存放序列化后的 record
     private final ConcurrentMap<TopicPartition, Deque<RecordBatch>> batches;
+    // IncompleteRecordBatches 是用于存放还未写满的 RecordBatch 对象的集合, 其只有一个成员 Set<RecordBatch>
     private final IncompleteRecordBatches incomplete;
     // The following variables are only accessed by the sender thread, so we don't need to protect them.
     private final Set<TopicPartition> muted;
@@ -165,39 +172,68 @@ public final class RecordAccumulator {
                                      long maxTimeToBlock) throws InterruptedException {
         // We keep track of the number of appending thread to make sure we do not miss batches in
         // abortIncompleteBatches().
+        // 这里是对正在进行追加的record进行计数, 当追加完成时(函数最后的finally), 我们看到计数器自减了.
         appendsInProgress.incrementAndGet();
         try {
             // check if we have an in-progress batch
+            // 根据record的TopicPartition(该对象只保存了topic与partition), 确定该record应该存入的batch队列
+            // 1. 如果该TopicPartition对应的队列为空，则为这个TopicPartition新建一个batch队列,
+            // 2. 如果该TopicPartition已存在一个batch队列，则把这个record追加到这个batch队列的最后一个batch当中.
             Deque<RecordBatch> dq = getOrCreateDeque(tp);
+            // 这里的 batches 是一个 ConcurrentMap<TopicPartition, Deque<RecordBatch>>, 通过putIfAbsent()可以保证其线程安全.
+            // Deque<RecordBatch> 不是线程安全的对象, 所以追加record的时候需要使用synchronize关键字保证其线程安全.
             synchronized (dq) {
+                // 这里有可能是因为, 该 KafkaProducer 对象此时已经被其他线程所关闭，所以需要抛出异常.
                 if (closed)
                     throw new IllegalStateException("Cannot send after the producer is closed.");
+                // 追加 record(这里已经是序列化之后的 key/value pair) 到 Deque<RecordBatch> 中去
+                // 如果返回值 RecordAppendResult 对象不是 null 则说明追加操作成功(成功将 record 追加到了队列的最后一个batch中)
+                // 如果返回值是 null, 则说明这是一个新创建的batch队列, 目前还没有可用的 batch, 我们将为其创建新的 batch 并放入队列.
                 RecordAppendResult appendResult = tryAppend(timestamp, key, value, callback, dq);
                 if (appendResult != null)
                     return appendResult;
             }
 
             // we don't have an in-progress record batch try to allocate a new batch
+            // 这里我们需要为该 batch 队列创建新的 RecordBatch 并放入队列.
+            // 需要初始化相应的 RecordBatch, 要为其分配的大小是: max（batch.size, 包括头文件后的本条消息的大小）
             int size = Math.max(this.batchSize, Records.LOG_OVERHEAD + Record.recordSize(key, value));
             log.trace("Allocating a new {} byte message buffer for topic {} partition {}", size, tp.topic(), tp.partition());
+            // 为该 TopicPartition 对应的 RecordBatch 队列 创建一个 ByteBuffer 对象.
             ByteBuffer buffer = free.allocate(size, maxTimeToBlock);
+            // 同样地, 为了防止其他线程同样为其创建 ByteBuffer, 在这里对这个队列加锁.
             synchronized (dq) {
                 // Need to check if producer is closed again after grabbing the dequeue lock.
+                // 再次查看是否 KafkaProducer 已经被关闭.
                 if (closed)
                     throw new IllegalStateException("Cannot send after the producer is closed.");
 
                 RecordAppendResult appendResult = tryAppend(timestamp, key, value, callback, dq);
                 if (appendResult != null) {
                     // Somebody else found us a batch, return the one we waited for! Hopefully this doesn't happen often...
+                    // 如果突然发现这个 queue 已经存在, 那么就释放这个已经分配的空间.
+                    // 这里应该同样是多线程导致的问题, 假设线程A与线程B同时为一个 TopicPartition 追加数据,
+                    // 而且该 TopicPartition 是一个新的 TopicPartition, 其队列中没有 RecordBatch 对象,
+                    // 那么线程A与线程B都会创建 ByteBuffer 并且试图去获得锁,
+                    // 假设线程A获得锁(线程B在这里阻塞), 并且成功追加数据, 将该 RecordBatch 加入队列, 退出函数, 释放该锁.
+                    // 之后线程B获得锁, 也会将自己的 RecordBatch 加入队列, 但是之前线程A加入的 RecordBatch 并未写满, 造成资源浪费
                     free.deallocate(buffer);
                     return appendResult;
                 }
+
+                // 将新创建的 ByteBuffer 对象包装成 MemoryRecords 对象,
+                // 然后再包装成 RecordBatch 对象, 并加入这个 TopicPartition 所对应的队列.
                 MemoryRecordsBuilder recordsBuilder = MemoryRecords.builder(buffer, compression, TimestampType.CREATE_TIME, this.batchSize);
                 RecordBatch batch = new RecordBatch(tp, recordsBuilder, time.milliseconds());
+                // 创建一个 RecordMetadata 的 Future, 用于非阻塞的函数调用.
+                // 这里的 FutureRecordMetadata 就是 Future<RecordMetadata> 的一个增强的实现.
                 FutureRecordMetadata future = Utils.notNull(batch.tryAppend(timestamp, key, value, callback, time.milliseconds()));
 
+                // 加入这个 TopicPartition 所对应的队列.
                 dq.addLast(batch);
+                // 该 RecordBatch 还未写满, 放入 IncompleteRecordBatches 集合.
                 incomplete.add(batch);
+                // 如果（dp.size() > 1), 就证明这个 queue 有一个 batch 是可以发送了
                 return new RecordAppendResult(future, dq.size() > 1 || batch.isFull(), true);
             }
         } finally {
@@ -429,6 +465,10 @@ public final class RecordAccumulator {
     /**
      * Get the deque for the given topic-partition, creating it if necessary.
      */
+    // 1. 如果该TopicPartition对应的队列为空，则为这个TopicPartition新建一个batch队列,
+    // 2. 如果该TopicPartition已存在一个batch队列，则把这个record追加到这个batch队列的最后一个batch当中.
+    // 其中 batches 是一个 ConcurrentMap<TopicPartition, Deque<RecordBatch>> 对象，通过putIfAbsent()可以保证其线程安全.
+    // 但是 Deque<RecordBatch> 不是线程安全的对象, 所以追加record的时候需要使用synchronize关键字保证其线程安全.
     private Deque<RecordBatch> getOrCreateDeque(TopicPartition tp) {
         Deque<RecordBatch> d = this.batches.get(tp);
         if (d != null)

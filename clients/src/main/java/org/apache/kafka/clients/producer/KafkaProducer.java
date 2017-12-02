@@ -434,6 +434,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
      *
      */
     @Override
+    // 需要注意的是, 可能会有多个线程使用同一个 KafkaProducer 对象发送数据，所以需要保证 KafkaProducer 对象所有操作的线程安全.
     public Future<RecordMetadata> send(ProducerRecord<K, V> record, Callback callback) {
         // intercept the record, which can be potentially modified; this method does not throw exceptions
         // 发送record之前, 先调用ProducerInterceptors的onSend()方法，截取发送的record做处理，用户可以自定义onSend(record)方法
