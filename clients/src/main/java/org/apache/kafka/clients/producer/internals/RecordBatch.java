@@ -68,6 +68,9 @@ public final class RecordBatch {
      * 
      * @return The RecordSend corresponding to this record or null if there isn't sufficient room.
      */
+    // 将序列化后的 record 放入 RecordBatch 中
+    // 如果该 RecordBatch 剩余空间不足, 返回 null 表示失败, 否则返回一个 FutureRecordMetadata 对象.
+    // FutureRecordMetadata 中包含了 ProduceRequestResult 对象, 记录了 TopicPartition 以及 offset.
     public FutureRecordMetadata tryAppend(long timestamp, byte[] key, byte[] value, Callback callback, long now) {
         if (!recordsBuilder.hasRoomFor(key, value)) {
             return null;

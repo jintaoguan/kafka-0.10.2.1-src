@@ -59,6 +59,12 @@ import java.util.concurrent.atomic.AtomicInteger;
  */
 /**
  * RecordAccumulator 对象是 KafkaProducer 对象的buffer区域的管理者.
+ * 追加 record 的基本流程:
+ * 1. 获取该 topic-partition 对应的 queue, 没有的话会创建一个空的 queue:
+ * 2. 向 queue 中追加数据, 先获取 queue 中最新加入的那个 RecordBatch,
+ *    如果不存在或者存在但剩余空余不足以添加本条 record 则返回 null, 成功写入的话直接返回结果, 写入成功.
+ * 3. 创建一个新的 RecordBatch, 初始化内存大小根据 max(batch.size, Records.LOG_OVERHEAD + Record.recordSize(key, value))
+ *    来确定 防止单条 record 过大); 向新建的 RecordBatch 写入 record, 并将 RecordBatch 添加到 queue 中, 返回结果, 写入成功.
  */
 public final class RecordAccumulator {
 
@@ -66,8 +72,11 @@ public final class RecordAccumulator {
 
     private volatile boolean closed;
     private final AtomicInteger flushesInProgress;
+    // 记录正在追加数据的计算器
     private final AtomicInteger appendsInProgress;
+    // batchSize 是用于确定每个 RecordBatch 的大小
     private final int batchSize;
+    // CompressionType 支持4种压缩方式 (NONE, GZIP, SNAPPY, LZ4)
     private final CompressionType compression;
     private final long lingerMs;
     private final long retryBackoffMs;
@@ -245,6 +254,7 @@ public final class RecordAccumulator {
      * If `RecordBatch.tryAppend` fails (i.e. the record batch is full), close its memory records to release temporary
      * resources (like compression streams buffers).
      */
+    // 追加数据, 将 record 放入其 TopicPartition 的 RecordBatch 队列的最后一个 RecordBatch 中.
     private RecordAppendResult tryAppend(long timestamp, byte[] key, byte[] value, Callback callback, Deque<RecordBatch> deque) {
         RecordBatch last = deque.peekLast();
         if (last != null) {
