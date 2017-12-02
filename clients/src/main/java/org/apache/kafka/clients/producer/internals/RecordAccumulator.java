@@ -351,6 +351,9 @@ public final class RecordAccumulator {
      * </ul>
      * </ol>
      */
+    /**
+     * 获取那些已经可以发送的 RecordBatch 对应的 nodes.
+     */
     public ReadyCheckResult ready(Cluster cluster, long nowMs) {
         Set<Node> readyNodes = new HashSet<>();
         long nextReadyCheckDelayMs = Long.MAX_VALUE;
