@@ -150,6 +150,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
     private final Serializer<K> keySerializer;
     private final Serializer<V> valueSerializer;
     private final ProducerConfig producerConfig;
+    // 最大阻塞时间限制
     private final long maxBlockTimeMs;
     private final int requestTimeoutMs;
     private final ProducerInterceptors<K, V> interceptors;
@@ -563,6 +564,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
 
         // 这里表示目前 KafkaProducer 没有该 Topic 的 metadata, 或者目标 partition 不合法 (server 端的 partition 增加了).
         long begin = time.milliseconds();
+        // 根据最大阻塞时间, 限制 remainingWaitMs, 表示剩余等待时间不可以超过限制, 否则抛出超时异常.
         long remainingWaitMs = maxWaitMs;
         long elapsed;
         // Issue metadata requests until we have metadata for the topic or maxWaitTimeMs is exceeded.
@@ -572,10 +574,9 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
 
         // 如果 metadata 中不存在这个 topic 的 metadata, 那么就请求更新 metadata.
         // 如果 metadata 没有更新的话, 方法就一直处在 do ... while 的循环之中, 在循环之中, 主要做以下操作:
-        // 1. metadata.requestUpdate() 将 metadata 的 needUpdate 变量设置为 true(强制更新), 并返回当前的版本号(version)，
-        //    通过版本号来判断 metadata 是否完成更新;
-        // 2. sender.wakeup() 唤醒 sender 线程, sender 线程又会去唤醒 NetworkClient 线程,
-        //    NetworkClient 线程进行一些实际的操作(后面详细介绍);
+        // 1. metadata.requestUpdate() 将 metadata.needUpdate 标志设置为 true(强制更新), 并返回当前的版本号(version),
+        //    通过版本号来判断 metadata 是否完成更新.
+        // 2. sender.wakeup() 唤醒 sender 线程, sender 线程又会去唤醒 NetworkClient 线程, NetworkClient 线程进行一些实际的操作.
         // 3. metadata.awaitUpdate(version, remainingWaitMs) 等待 metadata 的更新.
         do {
             log.trace("Requesting metadata update for topic {}.", topic);
@@ -584,7 +585,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             // 唤起 sender, 发送 metadata 更新请求
             sender.wakeup();
             try {
-                // 等待 metadata 的更新, 这里这是一个阻塞函数
+                // 等待 metadata 完成更新, 这里这是一个阻塞函数
                 metadata.awaitUpdate(version, remainingWaitMs);
             } catch (TimeoutException ex) {
                 // Rethrow with original maxWaitMs to prevent logging exception with remainingWaitMs

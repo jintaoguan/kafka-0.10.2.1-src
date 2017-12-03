@@ -534,6 +534,7 @@ public class NetworkClient implements KafkaClient {
      * @param responses The list of responses to update
      * @param now The current time
      */
+    // 处理任何已经完成的接收响应
     private void handleCompletedReceives(List<ClientResponse> responses, long now) {
         for (NetworkReceive receive : this.selector.completedReceives()) {
             String source = receive.source();
@@ -541,6 +542,7 @@ public class NetworkClient implements KafkaClient {
             AbstractResponse body = parseResponse(receive.payload(), req.header);
             log.trace("Completed receive from node {}, for key {}, received {}", req.destination, req.header.apiKey(), body);
             if (req.isInternalRequest && body instanceof MetadataResponse)
+                // 接收到 Server 端对 Metadata 请求的响应后, 更新 Metadata 信息.
                 metadataUpdater.handleCompletedMetadataResponse(req.header, now, (MetadataResponse) body);
             else if (req.isInternalRequest && body instanceof ApiVersionsResponse)
                 handleApiVersionsResponse(responses, req, now, (ApiVersionsResponse) body);
@@ -714,8 +716,11 @@ public class NetworkClient implements KafkaClient {
         }
 
         @Override
+        // 接收到 Server 端对 Metadata 请求的响应后, 更新 Metadata 信息.
         public void handleCompletedMetadataResponse(RequestHeader requestHeader, long now, MetadataResponse response) {
+            // 完成了 metadata 更新的过程, 将 metadataFetchInProgress 标志设置为 false
             this.metadataFetchInProgress = false;
+            // 获取 response 中的 cluster metadata 信息
             Cluster cluster = response.cluster();
             // check if any topics metadata failed to get updated
             Map<String, Errors> errors = response.errors();
@@ -725,8 +730,10 @@ public class NetworkClient implements KafkaClient {
             // don't update the cluster if there are no valid nodes...the topic we want may still be in the process of being
             // created which means we will get errors and no nodes until it exists
             if (cluster.nodes().size() > 0) {
+                // 根据 server 端返回的 cluster 信息, 更新本地 metadata 信息.
                 this.metadata.update(cluster, response.unavailableTopics(), now);
             } else {
+                // 如果 metadata 中 node 信息无效, 则不更新 metadata 信息
                 log.trace("Ignoring empty metadata response with correlation id {}.", requestHeader.correlationId());
                 this.metadata.failedUpdate(now);
             }
@@ -753,6 +760,12 @@ public class NetworkClient implements KafkaClient {
          * Add a metadata request to the list of sends if we can make one
          */
         // 将更新 metadata 信息的请求加入发送队列.
+        // 向连接数最少(load 最小)的 node 发送更新 metadata 的请求, 因为所有的 node 都有全部 topic 的 metadata 信息.
+        // 每次 Producer 请求更新 metadata 时，会有以下几种情况:
+        // 1. 如果 node 可以发送请求, 则直接发送请求.
+        // 2. 如果该 node 正在建立连接, 则直接返回.
+        // 3. 如果该 node 还没建立连接, 则向 broker 初始化链接.
+        // * 这里的 node 是连接数最少的 node.
         private long maybeUpdate(long now, Node node) {
             String nodeConnectionId = node.idString();
 

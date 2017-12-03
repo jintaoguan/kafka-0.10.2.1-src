@@ -71,7 +71,7 @@ public final class Metadata {
     // 是都需要更新 metadata
     private boolean needUpdate;
     /* Topics with expiry time */
-    // topic 与其过期时间的对应关系
+    // 当前该 Metadata 维护的所有 topic 与其过期时间的对应关系
     private final Map<String, Long> topics;
     private final List<Listener> listeners;
     //当接收到 metadata 更新时, ClusterResourceListeners的列表
@@ -126,8 +126,8 @@ public final class Metadata {
      * Add the topic to maintain in the metadata. If topic expiry is enabled, expiry time
      * will be reset on the next update.
      */
-    // 在 metadata 中添加 topic 后, 如果 Metadata 中没有这个 topic 的 meta,
-    // 那么调用 requestUpdateForNewTopics(), 其将 Metadata 的更新标志设置为了 true, 表示需要更新 Metadata.
+    // 在 metadata 中添加 topic 后, 如果 Metadata 中没有这个 topic 的 metadata,
+    // 那么调用 requestUpdateForNewTopics(), 其将 Metadata 的 needUpdate 标志设置为了 true, 表示需要更新 Metadata.
     public synchronized void add(String topic) {
         if (topics.put(topic, TOPIC_EXPIRY_NEEDS_UPDATE) == null) {
             requestUpdateForNewTopics();
@@ -139,6 +139,9 @@ public final class Metadata {
      * current info can be updated (i.e. backoff time has elapsed); If an update has been request then the expiry time
      * is now
      */
+    // 这里计算距离下次更新 metadata 信息的剩余时间:
+    // 1. 如果 Metadata.needUpdate 标志为 true, 那么强制立刻更新 metadata.
+    // 2. 如果 Metadata.needUpdate 标志为 false, 那么就是 (上次成功更新时间戳 + 过期时间 - 当前时间戳)
     public synchronized long timeToNextUpdate(long nowMs) {
         long timeToExpire = needUpdate ? 0 : Math.max(this.lastSuccessfulRefreshMs + this.metadataExpireMs - nowMs, 0);
         long timeToAllowUpdate = this.lastRefreshMs + this.refreshBackoffMs - nowMs;
@@ -148,6 +151,7 @@ public final class Metadata {
     /**
      * Request an update of the current cluster metadata info, return the current version before the update
      */
+    // 请求立刻更新 metadata 信息, 并返回当前 version (version 仅仅用于本地, 记录 metadata 的更新)
     public synchronized int requestUpdate() {
         this.needUpdate = true;
         return this.version;
@@ -164,14 +168,14 @@ public final class Metadata {
     /**
      * Wait for metadata update until the current version is larger than the last version we know of
      */
-    // 更新 metadata 信息 (根据当前 version 值来判断)
+    // 等待 metadata 完成更新 (根据当前 version 值来判断)
     public synchronized void awaitUpdate(final int lastVersion, final long maxWaitMs) throws InterruptedException {
         if (maxWaitMs < 0) {
             throw new IllegalArgumentException("Max time to wait for metadata updates should not be < 0 milli seconds");
         }
         long begin = System.currentTimeMillis();
         long remainingWaitMs = maxWaitMs;
-        // TODO 这里是为什么 ???
+        // 根据当前 version 值来判断 metadata 更新是否完成. TODO 这里是为什么 ???
         while (this.version <= lastVersion) {
             if (remainingWaitMs != 0)
                 wait(remainingWaitMs);
@@ -222,6 +226,7 @@ public final class Metadata {
      *        leader is not known
      * @param now current time in milliseconds
      */
+    // 根据 server 端返回的 cluster 信息, 更新本地 metadata 信息.
     public synchronized void update(Cluster cluster, Set<String> unavailableTopics, long now) {
         Objects.requireNonNull(cluster, "cluster should not be null");
 
