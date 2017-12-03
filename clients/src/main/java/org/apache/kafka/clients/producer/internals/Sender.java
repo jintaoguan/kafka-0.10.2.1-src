@@ -117,6 +117,7 @@ public class Sender implements Runnable {
     /**
      * The main run loop for the sender thread
      */
+    // sender.wakeup() 到 run() 的 调用过程是什么？
     public void run() {
         log.debug("Starting Kafka producer I/O thread.");
 
@@ -226,6 +227,8 @@ public class Sender implements Runnable {
         }
 
         // 真正发送 RecordBatch 数据给 server 的操作. TODO 详细讲解
+        // batches 是已准备好的 RecordBatch 根据 node.id 组织成 Map<NodeId, List<RecordBatch>> 的形式
+        // 按照 node.id 进行传输数据
         sendProduceRequests(batches, now);
 
         // if some partitions are already ready to be sent, the select time would be 0;
@@ -346,12 +349,14 @@ public class Sender implements Runnable {
      */
     private void sendProduceRequests(Map<Integer, List<RecordBatch>> collated, long now) {
         for (Map.Entry<Integer, List<RecordBatch>> entry : collated.entrySet())
+            // 对每个 node 进行数据传输
             sendProduceRequest(now, entry.getKey(), acks, requestTimeout, entry.getValue());
     }
 
     /**
      * Create a produce request from the given record batches
      */
+    // 对单个 node 传输多个 RecordBatch, destination 参数是 node.id
     private void sendProduceRequest(long now, int destination, short acks, int timeout, List<RecordBatch> batches) {
         Map<TopicPartition, MemoryRecords> produceRecordsByPartition = new HashMap<>(batches.size());
         final Map<TopicPartition, RecordBatch> recordsByPartition = new HashMap<>(batches.size());
@@ -361,6 +366,7 @@ public class Sender implements Runnable {
             recordsByPartition.put(tp, batch);
         }
 
+        // 创建一个 ProduceRequest.Builder 对象
         ProduceRequest.Builder requestBuilder =
                 new ProduceRequest.Builder(acks, timeout, produceRecordsByPartition);
         RequestCompletionHandler callback = new RequestCompletionHandler() {
