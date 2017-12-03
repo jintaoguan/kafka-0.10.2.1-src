@@ -126,6 +126,8 @@ public final class Metadata {
      * Add the topic to maintain in the metadata. If topic expiry is enabled, expiry time
      * will be reset on the next update.
      */
+    // 在 metadata 中添加 topic 后, 如果 Metadata 中没有这个 topic 的 meta,
+    // 那么调用 requestUpdateForNewTopics(), 其将 Metadata 的更新标志设置为了 true, 表示需要更新 Metadata.
     public synchronized void add(String topic) {
         if (topics.put(topic, TOPIC_EXPIRY_NEEDS_UPDATE) == null) {
             requestUpdateForNewTopics();
@@ -162,12 +164,14 @@ public final class Metadata {
     /**
      * Wait for metadata update until the current version is larger than the last version we know of
      */
+    // 更新 metadata 信息 (根据当前 version 值来判断)
     public synchronized void awaitUpdate(final int lastVersion, final long maxWaitMs) throws InterruptedException {
         if (maxWaitMs < 0) {
             throw new IllegalArgumentException("Max time to wait for metadata updates should not be < 0 milli seconds");
         }
         long begin = System.currentTimeMillis();
         long remainingWaitMs = maxWaitMs;
+        // TODO 这里是为什么 ???
         while (this.version <= lastVersion) {
             if (remainingWaitMs != 0)
                 wait(remainingWaitMs);
