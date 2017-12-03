@@ -43,6 +43,12 @@ import java.util.Set;
  * is removed from the metadata refresh set after an update. Consumers disable topic expiry since they explicitly
  * manage topics while producers rely on topic expiry to limit the refresh set.
  */
+// 一个 KafkaProducer 对象只拥有一个 Metadata 对象, 存储了这个 KafkaProducer 所掌握的 topic 与 cluster 信息.
+// Metadata 类被 client 线程和后台 sender 所共享, 所以 Metadata 所有的方法都由 synchronized 关键字保护线程安全.
+// Metadata 类只保存了所有 topic 的部分数据,
+// 当我们请求一个它上面没有的 topic 的 metadata 时,它会通过发送 metadata update 来更新 metadata,
+// 如果 topic metadata 过期策略是允许的, 那么任何 topic 过期的话都会被从集合中移除,
+// 但是 consumer 是不允许 topic 过期的因为它明确地知道它需要管理哪些 topic
 public final class Metadata {
 
     private static final Logger log = LoggerFactory.getLogger(Metadata.class);
@@ -50,18 +56,29 @@ public final class Metadata {
     public static final long TOPIC_EXPIRY_MS = 5 * 60 * 1000;
     private static final long TOPIC_EXPIRY_NEEDS_UPDATE = -1L;
 
+    // metadata 更新失败时, 为避免频繁更新 meta, 最小的间隔时间,默认 100ms
     private final long refreshBackoffMs;
+    // metadata 的过期时间, 默认 3600,000ms(1 hour)
     private final long metadataExpireMs;
+    // 每更新成功1次, version自增1, 主要是用于判断 metadata 是否更新
     private int version;
+    // 最近一次更新发生的时间（包含更新失败的情况）
     private long lastRefreshMs;
+    // 最近一次成功更新发生的时间 (lastSuccessulRefreshMs <= lastRefreshMs)
     private long lastSuccessfulRefreshMs;
+    // 集群中一些 topic 的信息, Cluster 是整个 Metadata 的核心
     private Cluster cluster;
+    // 是都需要更新 metadata
     private boolean needUpdate;
     /* Topics with expiry time */
+    // topic 与其过期时间的对应关系
     private final Map<String, Long> topics;
     private final List<Listener> listeners;
+    //当接收到 metadata 更新时, ClusterResourceListeners的列表
     private final ClusterResourceListeners clusterResourceListeners;
+    // 是否强制更新所有的 metadata
     private boolean needMetadataForAllTopics;
+    // 默认为 true, Producer 会定时移除过期的 topic, consumer 则不会移除
     private final boolean topicExpiryEnabled;
 
     /**

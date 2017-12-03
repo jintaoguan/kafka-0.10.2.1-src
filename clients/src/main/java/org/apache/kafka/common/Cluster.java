@@ -27,16 +27,36 @@ import java.util.Set;
 /**
  * A representation of a subset of the nodes, topics, and partitions in the Kafka cluster.
  */
+/**
+ * 一个 Metadata 对象只包含一个 Cluster 对象, 所以一个 KafkaProducer 对象只有一个 Cluster 对象.
+ * Cluster 并不是一个全集, Cluster 类是 Metadata 类的主要组成部分.
+ * Cluster 实例主要是保存:
+ * 1. broker.id 与 node 的对应关系.
+ * 2. topic 与 partition(PartitionInfo) 的对应关系.
+ * 3. node 与 partition(PartitionInfo) 的对应关系.
+ */
 public final class Cluster {
 
     private final boolean isBootstrapConfigured;
+    // node 列表 ?
     private final List<Node> nodes;
+    // 未认证的 topic 列表 ?
     private final Set<String> unauthorizedTopics;
+    // 内置的 topic 列表 ?
     private final Set<String> internalTopics;
+    // partitionsByTopicPartition 是一个 TopicPartition 到其 PartitionInfo 的查询表.
+    // PartitionInfo 对象包含了 topic、partition、leader、replicas、isr 这5个信息.
+    // 可以根据 TopicPartition 知道这个 partition 的 leader 所在的 Node, 所有 replicas 的位置 Node[], 所有 ISR 的位置 Node[]
     private final Map<TopicPartition, PartitionInfo> partitionsByTopicPartition;
+    // partitionsByTopic 是一个 Topic 到其所有 PartitionInfo 的查询表.
+    // 每个 Topic 有多个 Partition, 而每个 Partition 都有其自己的 PartitionInfo.
     private final Map<String, List<PartitionInfo>> partitionsByTopic;
+    // availablePartitionsByTopic 是一个可用 (leader 不为 null)的 Topic 与其所有 Partition 的查询表
     private final Map<String, List<PartitionInfo>> availablePartitionsByTopic;
+    // partitionsByNode 是一个 Node 到 PartitionInfo 的查询表
+    // 每个 Node 会包含多个 Topic 的多个 Partition
     private final Map<Integer, List<PartitionInfo>> partitionsByNode;
+    // nodesById 是一个 Node.id 到 Node 的查询表
     private final Map<Integer, Node> nodesById;
     private final ClusterResource clusterResource;
 

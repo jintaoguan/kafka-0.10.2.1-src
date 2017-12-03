@@ -15,6 +15,10 @@ package org.apache.kafka.common;
 /**
  * Information about a topic-partition.
  */
+/**
+ * 关于一个 partition 的简单信息, 其 leader replica 的位置, 所有 replica 的位置, 以及所有 ISR 的位置.
+ * 当然, 也包含了这个 partition 自己属于哪个 topic, 以及自己的 partition id.
+ */
 public class PartitionInfo {
 
     private final String topic;
