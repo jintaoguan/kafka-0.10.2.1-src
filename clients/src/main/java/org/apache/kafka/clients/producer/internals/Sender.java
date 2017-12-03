@@ -163,27 +163,28 @@ public class Sender implements Runnable {
      *            The current POSIX time in milliseconds
      */
     // sender 在这里发送 RecordBatch 数据给 server.
+    // 最后调用了 NetworkClient.poll()
     void run(long now) {
         // 获取 metadata 数据, 这里并没有从 server 端直接获取, 而是取了本地的已"缓存"的 metadata 信息.
         Cluster cluster = metadata.fetch();
         // get the list of partitions with data ready to send
-        // 获取那些已经可以发送的 RecordBatch 对应的 nodes.
+        // 获取那些已经可以发送的 RecordBatch 对应的 nodes. TODO 详细讲解.
         RecordAccumulator.ReadyCheckResult result = this.accumulator.ready(cluster, now);
 
         // if there are any partitions whose leaders are not known yet, force metadata update
-        // // 如果有 TopicPartition 的 leader replica 是未知的,就强制更新 metadata.
+        // 如果有 TopicPartition 的 leader replica 是未知的,就强制更新 metadata.
         if (!result.unknownLeaderTopics.isEmpty()) {
             // The set of topics with unknown leader contains topics with leader election pending as well as
             // topics which may have expired. Add the topic again to metadata to ensure it is included
             // and request metadata update, since there are messages to send to the topic.
             for (String topic : result.unknownLeaderTopics)
                 this.metadata.add(topic);
-            // 更新 metadata 数据, TODO 详细讲解.
+            // 更新 metadata 数据, 将 needUpdate 标志设为 true.
             this.metadata.requestUpdate();
         }
 
         // remove any nodes we aren't ready to send to
-        // 如果与node 没有连接（如果可以连接,同时初始化该连接, 就证明该 node 暂时不能发送数据, 暂时移除该 node.
+        // 如果与node 没有连接(如果可以连接, 同时初始化该连接, 就证明该 node 暂时不能发送数据), 暂时移除该 node.
         Iterator<Node> iter = result.readyNodes.iterator();
         long notReadyTimeout = Long.MAX_VALUE;
         while (iter.hasNext()) {
@@ -235,6 +236,7 @@ public class Sender implements Runnable {
         // otherwise if some partition already has some data accumulated but not ready yet,
         // the select time will be the time difference between now and its linger expiry time;
         // otherwise the select time will be the time difference between now and the metadata expiry time;
+        // 关于 socket 的一些实际的读写操作(其中包括 metadata 信息的更新)
         this.client.poll(pollTimeout, now);
     }
 
