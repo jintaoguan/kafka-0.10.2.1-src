@@ -48,7 +48,13 @@ import java.util.Set;
 // Metadata 类只保存了所有 topic 的部分数据,
 // 当我们请求一个它上面没有的 topic 的 metadata 时,它会通过发送 metadata update 来更新 metadata,
 // 如果 topic metadata 过期策略是允许的, 那么任何 topic 过期的话都会被从集合中移除,
-// 但是 consumer 是不允许 topic 过期的因为它明确地知道它需要管理哪些 topic
+// 但是 consumer 是不允许 topic 过期的因为它明确地知道它需要管理哪些 topic.
+
+// Metadata 会在下面两种情况下进行更新:
+// 1. KafkaProducer 第一次发送消息时强制更新, 其他时间周期性更新,
+//    它会通过 Metadata 的 lastRefreshMs, lastSuccessfulRefreshMs 这2个字段来实现.
+// 2. 强制更新: 调用 Metadata.requestUpdate() 将 needUpdate 置成了 true 来强制更新.
+
 public final class Metadata {
 
     private static final Logger log = LoggerFactory.getLogger(Metadata.class);
@@ -168,16 +174,19 @@ public final class Metadata {
     /**
      * Wait for metadata update until the current version is larger than the last version we know of
      */
-    // 等待 metadata 完成更新 (根据当前 version 值来判断)
+    // 阻塞等待 metadata 完成更新 (根据当前 version 值来判断), 并随时检测超时.
     public synchronized void awaitUpdate(final int lastVersion, final long maxWaitMs) throws InterruptedException {
         if (maxWaitMs < 0) {
             throw new IllegalArgumentException("Max time to wait for metadata updates should not be < 0 milli seconds");
         }
         long begin = System.currentTimeMillis();
         long remainingWaitMs = maxWaitMs;
-        // 根据当前 version 值来判断 metadata 更新是否完成. TODO 这里是为什么 ???
+        // 根据当前 version 值来判断 metadata 更新是否完成.
+        // 因为当接收到 server 端返回的最新 cluster 信息后, Metadata.update() 方法会将 version 自加.
+        // 所以 metadata 更新完成后 this.version > lastVersion.
         while (this.version <= lastVersion) {
             if (remainingWaitMs != 0)
+                // 这里阻塞等待, 如果 metadata 更新完成, 在 Metadata.update() 方法最后会调用 notifyAll(), 激活这里的 wait().
                 wait(remainingWaitMs);
             long elapsed = System.currentTimeMillis() - begin;
             if (elapsed >= maxWaitMs)
@@ -271,6 +280,7 @@ public final class Metadata {
             clusterResourceListeners.onUpdate(cluster.clusterResource());
         }
 
+        // 激活阻塞等待中的 awaitUpdate()
         notifyAll();
         log.debug("Updated cluster metadata version {} to {}", this.version, this.cluster);
     }

@@ -545,7 +545,11 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
      * @param maxWaitMs The maximum time in ms for waiting on the metadata
      * @return The cluster containing topic metadata and the amount of time we waited in ms
      */
-    // 等待 metadata 的更新:
+    // 等待 metadata 的更新.
+    // Metadata 会在下面两种情况下进行更新:
+    // 1. KafkaProducer 第一次发送消息时强制更新, 其他时间周期性更新,
+    //    它会通过 Metadata 的 lastRefreshMs, lastSuccessfulRefreshMs 这2个字段来实现.
+    // 2. 强制更新: 调用 Metadata.requestUpdate() 将 needUpdate 置成了 true 来强制更新.
     private ClusterAndWaitTime waitOnMetadata(String topic, Integer partition, long maxWaitMs) throws InterruptedException {
         // add topic to metadata topic list if it is not there already and reset expiry
         // 在 metadata 中添加 topic 后, 如果 metadata 中没有这个 topic 的 meta,
@@ -580,7 +584,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         // 3. metadata.awaitUpdate(version, remainingWaitMs) 等待 metadata 的更新.
         do {
             log.trace("Requesting metadata update for topic {}.", topic);
-            // 返回当前版本号, 初始值为0, 每次更新时会自增, 并将 needUpdate 设置为 true
+            // 返回当前版本号, 初始值为0, 每次更新完成时会自增 (Metadata.update()方法中), 并将 needUpdate 设置为 true
             int version = metadata.requestUpdate();
             // 唤起 sender, 发送 metadata 更新请求
             sender.wakeup();
