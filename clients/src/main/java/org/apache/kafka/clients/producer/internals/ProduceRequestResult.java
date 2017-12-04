@@ -29,11 +29,16 @@ import org.apache.kafka.common.record.Record;
  * partition in a produce request and it is shared by all the {@link RecordMetadata} instances that are batched together
  * for the same partition in the request.
  */
+/**
+ * ProduceRequestResult 通过 CountDownLatch 与 await() 实现了类似于 Future 的功能.
+ */
 public final class ProduceRequestResult {
 
     private final CountDownLatch latch = new CountDownLatch(1);
     private final TopicPartition topicPartition;
 
+    // baseOffset 表示的是 server 端为这个 RecordBatch 的第一条消息数据分配的 offset,
+    // 这样每条消息可以根据自己在 RecordBatch 中的相对偏移量, 算出自己在服务器端的偏移量了.
     private volatile Long baseOffset = null;
     private volatile long logAppendTime = Record.NO_TIMESTAMP;
     private volatile RuntimeException error;

@@ -75,16 +75,23 @@ public final class RecordBatch {
     // 如果该 RecordBatch 剩余空间不足, 返回 null 表示失败, 否则返回一个 FutureRecordMetadata 对象.
     // FutureRecordMetadata 中包含了 ProduceRequestResult 对象, 记录了 TopicPartition 以及 offset.
     public FutureRecordMetadata tryAppend(long timestamp, byte[] key, byte[] value, Callback callback, long now) {
+        // 估计剩余空间不足, 这里不是一个准确值.
         if (!recordsBuilder.hasRoomFor(key, value)) {
             return null;
         } else {
+            // 向 MemoryRecords 中添加数据
             long checksum = this.recordsBuilder.append(timestamp, key, value);
+            // 更新最大 record 的字节数
             this.maxRecordSize = Math.max(this.maxRecordSize, Record.recordSize(key, value));
             this.lastAppendTime = now;
+            // 创建 FutureRecordMetadata 对象
             FutureRecordMetadata future = new FutureRecordMetadata(this.produceFuture, this.recordCount,
                                                                    timestamp, checksum,
                                                                    key == null ? -1 : key.length,
                                                                    value == null ? -1 : value.length);
+            // 将用户自定义的 Callback 与 FutureRecordMetadata 一起封装到 Thunk.
+            // 每条消息都封装一个 Thunk 对象, 当消息数据发送给服务器成功后, 会进入 RecordBatch.done() 方法.
+            // 在 RecordBatch.done() 方法中, 每个 Thunk 会执行一次, 就是对每个消息执行一次自定义 Callback.
             if (callback != null)
                 thunks.add(new Thunk(callback, future));
             this.recordCount++;
@@ -99,6 +106,7 @@ public final class RecordBatch {
      * @param logAppendTime The log append time or -1 if CreateTime is being used
      * @param exception The exception that occurred (or null if the request was successful)
      */
+    // 当消息数据发送给服务器成功后,  每个 Thunk 会执行一次, 就是对每个消息执行一次自定义 Callback.
     public void done(long baseOffset, long logAppendTime, RuntimeException exception) {
         log.trace("Produced messages to topic-partition {} with base offset offset {} and error: {}.",
                   topicPartition, baseOffset, exception);
@@ -129,6 +137,7 @@ public final class RecordBatch {
     /**
      * A callback and the associated FutureRecordMetadata argument to pass to it.
      */
+    // 用于封装用户自定义 Callback 与该消息 RecordMetadata 的内部类
     final private static class Thunk {
         final Callback callback;
         final FutureRecordMetadata future;
