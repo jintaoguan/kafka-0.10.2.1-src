@@ -43,8 +43,11 @@ public final class RecordBatch {
     private final List<Thunk> thunks = new ArrayList<>();
     private final MemoryRecordsBuilder recordsBuilder;
 
+    // 尝试发送当前 RecordBatch 的次数
     volatile int attempts;
+    // 记录了保存的 record 的个数
     int recordCount;
+    // 最大 record 的字节数
     int maxRecordSize;
     long drainedMs;
     long lastAttemptMs;

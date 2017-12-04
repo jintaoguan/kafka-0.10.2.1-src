@@ -34,6 +34,8 @@ import java.util.Set;
  * 1. broker.id 与 node 的对应关系.
  * 2. topic 与 partition(PartitionInfo) 的对应关系.
  * 3. node 与 partition(PartitionInfo) 的对应关系.
+ *
+ * 所有字段都是 private final, 只提供了查询的方法, 不可变对象保证了线程安全.
  */
 public final class Cluster {
 

@@ -136,21 +136,31 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
     private static final String JMX_PREFIX = "kafka.producer";
 
     private String clientId;
+    // 分区选择器
     private final Partitioner partitioner;
+    // 消息最大长度, 是消息头 + 序列化后的key + 序列化后的value 的最大长度
     private final int maxRequestSize;
+    // 发送单个消息的缓冲区大小
     private final long totalMemorySize;
+    // Kafka 集群的 metadata 信息, 是全部 topic 的子集, 只和该 KafkaProducer 相关
     private final Metadata metadata;
+    // 用于收集缓存消息, 等待 Sender 线程发送给 server 端
     private final RecordAccumulator accumulator;
+    // 发送消息/更新 metadata 的 Sender 线程, 在 ioThread 线程中执行
     private final Sender sender;
     private final Metrics metrics;
+    // 执行 Sender 任务发送消息的线程, 成为 Sender 线程
     private final Thread ioThread;
+    // 压缩算法, 支持 none, gzip, snappy, lz4 四种.
     private final CompressionType compressionType;
     private final Sensor errors;
     private final Time time;
+    // key 的序列化器
     private final Serializer<K> keySerializer;
+    // value 的序列化器
     private final Serializer<V> valueSerializer;
     private final ProducerConfig producerConfig;
-    // 最大阻塞时间限制
+    // 最大阻塞时间限制, 等待更新 Kafka 集群 metadata 的最大时长
     private final long maxBlockTimeMs;
     private final int requestTimeoutMs;
     private final ProducerInterceptors<K, V> interceptors;
@@ -226,6 +236,8 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                     MetricsReporter.class);
             reporters.add(new JmxReporter(JMX_PREFIX));
             this.metrics = new Metrics(metricConfig, reporters, time);
+
+            // 通过反射机制创建配置的 partitioner, keySerializer 和 valueSerializer 实例
             this.partitioner = config.getConfiguredInstance(ProducerConfig.PARTITIONER_CLASS_CONFIG, Partitioner.class);
             long retryBackoffMs = config.getLong(ProducerConfig.RETRY_BACKOFF_MS_CONFIG);
             if (keySerializer == null) {
@@ -252,6 +264,8 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             this.interceptors = interceptorList.isEmpty() ? null : new ProducerInterceptors<>(interceptorList);
 
             ClusterResourceListeners clusterResourceListeners = configureClusterResourceListeners(keySerializer, valueSerializer, interceptorList, reporters);
+
+            // 创建 Kafka 集群的 Metadata
             this.metadata = new Metadata(retryBackoffMs, config.getLong(ProducerConfig.METADATA_MAX_AGE_CONFIG), true, clusterResourceListeners);
             this.maxRequestSize = config.getInt(ProducerConfig.MAX_REQUEST_SIZE_CONFIG);
             this.totalMemorySize = config.getLong(ProducerConfig.BUFFER_MEMORY_CONFIG);
@@ -293,6 +307,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                 this.requestTimeoutMs = config.getInt(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG);
             }
 
+            // 创建 RecordAccumulator
             this.accumulator = new RecordAccumulator(config.getInt(ProducerConfig.BATCH_SIZE_CONFIG),
                     this.totalMemorySize,
                     this.compressionType,
@@ -304,6 +319,8 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             List<InetSocketAddress> addresses = ClientUtils.parseAndValidateAddresses(config.getList(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG));
             this.metadata.update(Cluster.bootstrap(addresses), Collections.<String>emptySet(), time.milliseconds());
             ChannelBuilder channelBuilder = ClientUtils.createChannelBuilder(config.values());
+
+            // 创建 NetworkClient, 它是 KafkaProducer 网络 I/O 的核心模块
             NetworkClient client = new NetworkClient(
                     new Selector(config.getLong(ProducerConfig.CONNECTIONS_MAX_IDLE_MS_CONFIG), this.metrics, time, "producer", channelBuilder),
                     this.metadata,
@@ -326,6 +343,8 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                     Time.SYSTEM,
                     this.requestTimeoutMs);
             String ioThreadName = "kafka-producer-network-thread" + (clientId.length() > 0 ? " | " + clientId : "");
+
+            // 启动 Sender 对应的线程
             this.ioThread = new KafkaThread(ioThreadName, this.sender, true);
             this.ioThread.start();
 

@@ -64,7 +64,7 @@ public final class Metadata {
 
     // metadata 更新失败时, 为避免频繁更新 meta, 最小的间隔时间,默认 100ms
     private final long refreshBackoffMs;
-    // metadata 的过期时间, 默认 3600,000ms(1 hour)
+    // metadata 的过期时间, 默认 5 minutes
     private final long metadataExpireMs;
     // 每更新成功1次, version自增1, 主要是用于判断 metadata 是否更新
     private int version;
@@ -74,11 +74,13 @@ public final class Metadata {
     private long lastSuccessfulRefreshMs;
     // 集群中一些 topic 的信息, Cluster 是整个 Metadata 的核心
     private Cluster cluster;
-    // 是都需要更新 metadata
+    // 标志是否强制更新 cluster metadata, 会触发 Sender 线程更新 metadata
     private boolean needUpdate;
     /* Topics with expiry time */
     // 当前该 Metadata 维护的所有 topic 与其过期时间的对应关系
     private final Map<String, Long> topics;
+    // 监听 Metadata 更新的监听器集合, 自定义 Metadata 监听实现 Metadata.Listener.onMetadataUpdate() 方法即可,
+    // 在更新 Metadata 中的 cluster 字段之前, 会通知 listeners 集合中的所有 Listener 对象.
     private final List<Listener> listeners;
     //当接收到 metadata 更新时, ClusterResourceListeners的列表
     private final ClusterResourceListeners clusterResourceListeners;
@@ -186,7 +188,8 @@ public final class Metadata {
         // 所以 metadata 更新完成后 this.version > lastVersion.
         while (this.version <= lastVersion) {
             if (remainingWaitMs != 0)
-                // 这里阻塞等待, 如果 metadata 更新完成, 在 Metadata.update() 方法最后会调用 notifyAll(), 激活这里的 wait().
+                // 这里阻塞等待, 如果 metadata 更新完成,
+                // 在 Metadata.update() 方法最后会调用 notifyAll(), 激活这里的 wait().
                 wait(remainingWaitMs);
             long elapsed = System.currentTimeMillis() - begin;
             if (elapsed >= maxWaitMs)

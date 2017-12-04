@@ -27,10 +27,15 @@ import java.util.List;
  * modifying in-place an existing buffer of log entries. To create a new buffer see {@link MemoryRecordsBuilder},
  * or one of the {@link #builder(ByteBuffer, byte, CompressionType, TimestampType) builder} variants.
  */
+/**
+ * MemoryRecords 与 RecordBatch 对应, 每个 RecordBatch 拥有一个 MemoryRecordsBuilder.
+ * MemoryRecords 表示的是多个消息的集合, 其中封装了 Java NIO ByteBuffer 用来保存消息数据.
+ */
 public class MemoryRecords extends AbstractRecords {
 
     public final static MemoryRecords EMPTY = MemoryRecords.readableRecords(ByteBuffer.allocate(0));
 
+    // 用于保存消息数据的 Java NIO ByteBuffer
     private final ByteBuffer buffer;
 
     private final Iterable<ByteBufferLogEntry> shallowEntries = new Iterable<ByteBufferLogEntry>() {
