@@ -234,6 +234,7 @@ public final class RecordAccumulator {
                 // 然后再包装成 RecordBatch 对象, 并加入这个 TopicPartition 所对应的队列.
                 MemoryRecordsBuilder recordsBuilder = MemoryRecords.builder(buffer, compression, TimestampType.CREATE_TIME, this.batchSize);
                 RecordBatch batch = new RecordBatch(tp, recordsBuilder, time.milliseconds());
+                // 在新创建的 RecordBatch 中追加 record, 并将这个 RecordBatch 对象添加到 batches 集合中.
                 // 创建一个 RecordMetadata 的 Future, 用于非阻塞的函数调用.
                 // 这里的 FutureRecordMetadata 就是 Future<RecordMetadata> 的一个增强的实现.
                 FutureRecordMetadata future = Utils.notNull(batch.tryAppend(timestamp, key, value, callback, time.milliseconds()));
@@ -352,7 +353,16 @@ public final class RecordAccumulator {
      * </ol>
      */
     /**
-     * 获取那些已经可以发送的 RecordBatch 对应的 nodes.
+     * 获取那些已经可以发送的 RecordBatch 对应的 nodes, 条件如下:
+     * (1). 队列中有多个 RecordBatche 或者第一个 RecordBatch 已满
+     * (2). 是否超时
+     * (3). 是否有其他线程在等待 BufferPool 释放空间, 即 BufferPool 的空间耗尽了
+     * (4). 是否有线程在等待 flush 操作完成
+     * (5). Sender 线程准备关闭
+     *
+     * 它会遍历 batches 中的每个 TopicPartition, 首先查找当前分区 leader 副本所在的 Node,
+     * 如果满足上面5个条件就把这个 Node 的信息加入 readyNodes 集合.
+     * 遍历完成后返回 ReadyCheckResult 对象
      */
     public ReadyCheckResult ready(Cluster cluster, long nowMs) {
         Set<Node> readyNodes = new HashSet<>();
@@ -364,21 +374,30 @@ public final class RecordAccumulator {
             TopicPartition part = entry.getKey();
             Deque<RecordBatch> deque = entry.getValue();
 
+            // 找到该 partition 的 leader replica 所在的 Node
+            // 因为消息实际上是发送给 leader replica, 在通过同步复制发送到其他 replica 中的
             Node leader = cluster.leaderFor(part);
             synchronized (deque) {
                 if (leader == null && !deque.isEmpty()) {
                     // This is a partition for which leader is not known, but messages are available to send.
                     // Note that entries are currently not removed from batches when deque is empty.
+                    // 这个 partition 未知, 记录下这个 partition 的信息
                     unknownLeaderTopics.add(part.topic());
                 } else if (!readyNodes.contains(leader) && !muted.contains(part)) {
+                    // 判断这个节点是否还未加入 readyNodes 集合,
+                    // 因为有可能多个 partition 的 leader replica 位于同一个 Node 上.
+                    // 取这个 TopicPartition 队列中的第一个 RecordBatch
                     RecordBatch batch = deque.peekFirst();
                     if (batch != null) {
                         boolean backingOff = batch.attempts > 0 && batch.lastAttemptMs + retryBackoffMs > nowMs;
                         long waitedTimeMs = nowMs - batch.lastAttemptMs;
                         long timeToWaitMs = backingOff ? retryBackoffMs : lingerMs;
                         long timeLeftMs = Math.max(timeToWaitMs - waitedTimeMs, 0);
+                        // 条件(1)
                         boolean full = deque.size() > 1 || batch.isFull();
+                        // 条件(2)
                         boolean expired = waitedTimeMs >= timeToWaitMs;
+                        // 条件 (3),(4),(5)
                         boolean sendable = full || expired || exhausted || closed || flushInProgress();
                         if (sendable && !backingOff) {
                             readyNodes.add(leader);
