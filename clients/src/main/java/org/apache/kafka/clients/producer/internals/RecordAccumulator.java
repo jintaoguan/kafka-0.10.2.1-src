@@ -456,18 +456,22 @@ public final class RecordAccumulator {
         Map<Integer, List<RecordBatch>> batches = new HashMap<>();
         for (Node node : nodes) {
             int size = 0;
+            // 获取该 node 上的 partition 集合
             List<PartitionInfo> parts = cluster.partitionsForNode(node.id());
             List<RecordBatch> ready = new ArrayList<>();
             /* to make starvation less likely this loop doesn't start at 0 */
             int start = drainIndex = drainIndex % parts.size();
             do {
+                // 获取分区详细情况
                 PartitionInfo part = parts.get(drainIndex);
                 TopicPartition tp = new TopicPartition(part.topic(), part.partition());
                 // Only proceed if the partition has no in-flight batches.
                 if (!muted.contains(tp)) {
+                    // 获取该 partition 对应的 RecordBatch 队列
                     Deque<RecordBatch> deque = getDeque(new TopicPartition(part.topic(), part.partition()));
                     if (deque != null) {
                         synchronized (deque) {
+                            // 获取队列第一个 RecordBatch
                             RecordBatch first = deque.peekFirst();
                             if (first != null) {
                                 boolean backoff = first.attempts > 0 && first.lastAttemptMs + retryBackoffMs > now;
@@ -477,8 +481,11 @@ public final class RecordAccumulator {
                                         // there is a rare case that a single batch size is larger than the request size due
                                         // to compression; in this case we will still eventually send this batch in a single
                                         // request
+                                        // 数据量已满, 结束循环
                                         break;
                                     } else {
+                                        // 从队列中获取一个 RecordBatch 并将其加入 ready 集合
+                                        // 每个 TopicPartition 只取一个 RecordBatch
                                         RecordBatch batch = deque.pollFirst();
                                         batch.close();
                                         size += batch.sizeInBytes();
