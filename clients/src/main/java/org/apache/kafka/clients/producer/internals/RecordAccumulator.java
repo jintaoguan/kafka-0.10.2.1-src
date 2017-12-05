@@ -439,6 +439,13 @@ public final class RecordAccumulator {
      * @param now The current unix time in milliseconds
      * @return A list of {@link RecordBatch} for each node specified with total size less than the requested maxSize.
      */
+    /**
+     * drain() 方法会根据 ready() 发放返回的 Node 集合获取要发送的数据, 返回 Map<Integer, List<RecordBatch>>,
+     * 该 Map 的 key 是 NodeId, value 是发送给这个 Node 的 RecordBatch 集合.
+     * drain() 方法由 Sender 线程调用.
+     * drain() 发放的核心逻辑是将一个 TopicPartition -> RecordBatch 的映射转化成 NodeId -> RecordBatch 的映射.
+     * 因为底层网络 I/O 只关心消息发往哪些 node, 而高层 API 关系的消息发往哪些 TopicPartition.
+     */
     public Map<Integer, List<RecordBatch>> drain(Cluster cluster,
                                                  Set<Node> nodes,
                                                  int maxSize,
