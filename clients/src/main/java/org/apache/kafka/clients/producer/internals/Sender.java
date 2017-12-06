@@ -165,14 +165,16 @@ public class Sender implements Runnable {
     // sender 在这里发送 RecordBatch 数据给 server.
     // 最后调用了 NetworkClient.poll()
     void run(long now) {
-        // 获取 metadata 数据, 这里并没有从 server 端直接获取, 而是取了本地的已"缓存"的 metadata 信息.
+        // (1) 获取 metadata 数据, 这里并没有从 server 端直接获取, 而是取了本地的已"缓存"的 metadata 信息.
         Cluster cluster = metadata.fetch();
         // get the list of partitions with data ready to send
-        // 获取那些已经可以发送的 RecordBatch 对应的 nodes. TODO 详细讲解.
+        // (2) 获取那些已经可以发送的 RecordBatch 对应的 nodes.
+        //     根据 RecordAccumulator 的缓存情况, 选出可以发送数据的 Node, 返回 ReadyCheckResult
         RecordAccumulator.ReadyCheckResult result = this.accumulator.ready(cluster, now);
 
         // if there are any partitions whose leaders are not known yet, force metadata update
         // 如果有 TopicPartition 的 leader replica 是未知的,就强制更新 metadata.
+        // (3) 如果 ReadyCheckResult 中的 unknownLeaderTopics 不为空, 立刻更新 metadata
         if (!result.unknownLeaderTopics.isEmpty()) {
             // The set of topics with unknown leader contains topics with leader election pending as well as
             // topics which may have expired. Add the topic again to metadata to ensure it is included
@@ -185,6 +187,7 @@ public class Sender implements Runnable {
 
         // remove any nodes we aren't ready to send to
         // 如果与node 没有连接(如果可以连接, 同时初始化该连接, 就证明该 node 暂时不能发送数据), 暂时移除该 node.
+        // (4) 对于 ReadyCheckResult 中的 readyNodes 集合, 遍历调用 NetworkClient.ready() 方法, 检测其是否网络正常, 否则去除该 Node
         Iterator<Node> iter = result.readyNodes.iterator();
         long notReadyTimeout = Long.MAX_VALUE;
         while (iter.hasNext()) {
@@ -198,6 +201,7 @@ public class Sender implements Runnable {
         // create produce requests
         // 返回该 node 对应的所有可以发送的 RecordBatch 组成的 batches(key 是 node.id),
         // 并将 RecordBatch 从对应的 queue 中移除.
+        // (5) 经过步骤(4), 我们更新了 readyNodes 集合, 调用 RecordAccumulator.drain() 方法获取待发送的消息集合.
         Map<Integer, List<RecordBatch>> batches = this.accumulator.drain(cluster,
                                                                          result.readyNodes,
                                                                          this.maxRequestSize,
@@ -210,6 +214,9 @@ public class Sender implements Runnable {
             }
         }
 
+        // (6) 调用 RecordAccumulator.abortExpiredBatches() 方法处理 RecordAccumulator 中超时的消息.
+        //     对 RecordAccumulator 中的全部 RecordBatch 调用 RecordBatch.maybeExpire() 方法处理.
+        //     如果超时, 则调用 RecordBatch.done() 方法, 调用自定义 Callback, 将这个 RecordBatch 从队列中移除, 释放 ByteBuffer 空间.
         List<RecordBatch> expiredBatches = this.accumulator.abortExpiredBatches(this.requestTimeout, now);
         // update sensors
         for (RecordBatch expiredBatch : expiredBatches)
@@ -352,6 +359,7 @@ public class Sender implements Runnable {
     private void sendProduceRequests(Map<Integer, List<RecordBatch>> collated, long now) {
         for (Map.Entry<Integer, List<RecordBatch>> entry : collated.entrySet())
             // 对每个 node 进行数据传输
+            // 将待发送的数据封装成 ClientRequest, 并发送给目标主机
             sendProduceRequest(now, entry.getKey(), acks, requestTimeout, entry.getValue());
     }
 
