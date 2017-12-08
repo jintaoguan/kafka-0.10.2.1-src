@@ -30,6 +30,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * ProduceRequest 是生产者向服务器追加消息时使用的请求
+ */
 public class ProduceRequest extends AbstractRequest {
     private static final String ACKS_KEY_NAME = "acks";
     private static final String TIMEOUT_KEY_NAME = "timeout";

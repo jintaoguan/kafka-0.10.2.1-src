@@ -370,6 +370,9 @@ public class Sender implements Runnable {
     private void sendProduceRequest(long now, int destination, short acks, int timeout, List<RecordBatch> batches) {
         Map<TopicPartition, MemoryRecords> produceRecordsByPartition = new HashMap<>(batches.size());
         final Map<TopicPartition, RecordBatch> recordsByPartition = new HashMap<>(batches.size());
+
+        // 将单个 node 对应的 RecordBatch 集合, 重新整理为 produceRecordsByPartition (Map<TopicPartition, MemoryRecords>)
+        // 和 recordsByPartition (Map<TopicPartition, RecordBatch>) 两个集合.
         for (RecordBatch batch : batches) {
             TopicPartition tp = batch.topicPartition;
             produceRecordsByPartition.put(tp, batch.records());
@@ -379,6 +382,8 @@ public class Sender implements Runnable {
         // 创建一个 ProduceRequest.Builder 对象
         ProduceRequest.Builder requestBuilder =
                 new ProduceRequest.Builder(acks, timeout, produceRecordsByPartition);
+
+        // 创建 RequestCompletionHandler 作为回调对象
         RequestCompletionHandler callback = new RequestCompletionHandler() {
             public void onComplete(ClientResponse response) {
                 handleProduceResponse(response, recordsByPartition, time.milliseconds());
