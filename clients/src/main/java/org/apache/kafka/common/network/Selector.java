@@ -81,22 +81,29 @@ public class Selector implements Selectable {
     private static final Logger log = LoggerFactory.getLogger(Selector.class);
 
     private final java.nio.channels.Selector nioSelector;
+    // 维护了 NodeId 与 KafkaChannel 之间的映射关系, 表示生产者客户端与多个 Node 之间的网络连接
+    // KafkaChannel 是在 SocketChannel 上层的封装
     private final Map<String, KafkaChannel> channels;
+    // 记录已经完全发送出去的请求
     private final List<Send> completedSends;
+    // 记录已经完全接收到的请求
     private final List<NetworkReceive> completedReceives;
     private final Map<KafkaChannel, Deque<NetworkReceive>> stagedReceives;
     private final Set<SelectionKey> immediatelyConnectedKeys;
     private final Map<String, KafkaChannel> closingChannels;
     private final List<String> disconnected;
     private final List<String> connected;
+    // 记录向哪些 Node 发送的请求失败了
     private final List<String> failedSends;
     private final Time time;
     private final SelectorMetrics sensors;
     private final String metricGrpPrefix;
     private final Map<String, String> metricTags;
+    // 用于创建 KafkaChannel 的 Builder
     private final ChannelBuilder channelBuilder;
     private final int maxReceiveSize;
     private final boolean metricsPerConnection;
+    // IdleExpiryManager 用来记录各个连接的使用情况, 并据此关闭空闲时间超过 connectionsMaxIdleNanos 的连接
     private final IdleExpiryManager idleExpiryManager;
 
     /**
@@ -160,14 +167,22 @@ public class Selector implements Selectable {
      * @throws IllegalStateException if there is already a connection for that id
      * @throws IOException if DNS resolution fails on the hostname or if the broker is down
      */
+    /**
+     * 核心方法 KSelector.connect() 用来创建 KafkaChannel, 并添加到 channel 集合中保存.
+     * 因为是非阻塞模式，此时调用 connect() 可能在连接建立之前就返回了.
+     * 为了确定连接是否建立，需要再调用 finishConnect() 确认完全连接上了.
+     */
     @Override
     public void connect(String id, InetSocketAddress address, int sendBufferSize, int receiveBufferSize) throws IOException {
         if (this.channels.containsKey(id))
             throw new IllegalStateException("There is already a connection for id " + id);
 
+        // 创建 SocketChannel
         SocketChannel socketChannel = SocketChannel.open();
+        // 配置成非阻塞模式
         socketChannel.configureBlocking(false);
         Socket socket = socketChannel.socket();
+        // 设置为长连接
         socket.setKeepAlive(true);
         if (sendBufferSize != Selectable.USE_DEFAULT_BUFFER_SIZE)
             socket.setSendBufferSize(sendBufferSize);
@@ -176,6 +191,7 @@ public class Selector implements Selectable {
         socket.setTcpNoDelay(true);
         boolean connected;
         try {
+            // 连接服务端, 注意这里并没有开始真正连接, 或者说因为是非阻塞方式, 是发起一个连接
             connected = socketChannel.connect(address);
         } catch (UnresolvedAddressException e) {
             socketChannel.close();
@@ -184,9 +200,13 @@ public class Selector implements Selectable {
             socketChannel.close();
             throw e;
         }
+        // 注册连接事件
         SelectionKey key = socketChannel.register(nioSelector, SelectionKey.OP_CONNECT);
+        // 会创建包括底层的 transportLayer
         KafkaChannel channel = channelBuilder.buildChannel(id, key, maxReceiveSize);
+        // 将 KafkaChannel 注册到 SelectionKey
         key.attach(channel);
+        // KSelector 维护了每个 nodeConnectionId 以及 KafkaChannel
         this.channels.put(id, channel);
 
         if (connected) {
