@@ -509,7 +509,9 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
   def onNewTopicCreation(topics: Set[String], newPartitions: Set[TopicAndPartition]) {
     info("New topic creation callback for %s".format(newPartitions.mkString(",")))
     // subscribe to partition changes
+    // 先对这些新增的 topic 注册 PartitionModificationsListener 监听器
     topics.foreach(topic => partitionStateMachine.registerPartitionChangeListener(topic))
+    // 创建 partition 和 replicas 的实例对象
     onNewPartitionCreation(newPartitions)
   }
 
@@ -519,11 +521,19 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
    * 1. Move the newly created partitions to the NewPartition state
    * 2. Move the newly created partitions from NewPartition->OnlinePartition state
    */
+  // topic 变化时,这个方法将会被调用
+  // 1. 将新创建的 partition 置为 NewPartition 状态
+  // 2. 从 NewPartition 改为 OnlinePartition 状态
+  // 这个方法就是对 partition 状态机 和 replica 状态机中的 partition 和 replica 状态进行调整.
   def onNewPartitionCreation(newPartitions: Set[TopicAndPartition]) {
     info("New partition creation callback for %s".format(newPartitions.mkString(",")))
+    // 创建 Partition 对象, 并将其状态置为 NewPartition 状态
     partitionStateMachine.handleStateChanges(newPartitions, NewPartition)
+    // 创建 Replica 对象, 并将其状态置为 NewReplica 状态
     replicaStateMachine.handleStateChanges(controllerContext.replicasForPartition(newPartitions), NewReplica)
+    // 将 partition 对象从 NewPartition 改为 OnlinePartition 状态
     partitionStateMachine.handleStateChanges(newPartitions, OnlinePartition, offlinePartitionSelector)
+    // 将 Replica 对象从 NewReplica 改为 OnlineReplica 状态
     replicaStateMachine.handleStateChanges(controllerContext.replicasForPartition(newPartitions), OnlineReplica)
   }
 
@@ -1435,6 +1445,7 @@ class PreferredReplicaElectionListener(protected val controller: KafkaController
 case class ReassignedPartitionsContext(var newReplicas: Seq[Int] = Seq.empty,
                                        var isrChangeListener: ReassignedPartitionsIsrChangeListener = null)
 
+// 由 [topic, partitionId, replicaId] 三元组描述一个 replica
 case class PartitionAndReplica(topic: String, partition: Int, replica: Int) {
   override def toString: String = {
     "[Topic=%s,Partition=%d,Replica=%d]".format(topic, partition, replica)

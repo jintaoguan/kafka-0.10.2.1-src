@@ -42,6 +42,16 @@ import kafka.utils.CoreUtils._
  * 7. NonExistentReplica: If a replica is deleted successfully, it is moved to this state. Valid previous state is
  *                        ReplicaDeletionSuccessful
  */
+/**
+  * Replica 状态机, 它定义了 replica 的状态以及状态的合法转移. 一个 replica 有7种可能的状态:
+  * 1. NewReplica
+  * 2. OnlineReplica
+  * 3. OfflineReplica
+  * 4. ReplicaDeletionStarted
+  * 5. ReplicaDeletionSuccessful
+  * 6. ReplicaDeletionIneligible
+  * 7. NonExistentReplica
+  */
 class ReplicaStateMachine(controller: KafkaController) extends Logging {
   private val controllerContext = controller.controllerContext
   private val controllerId = controller.config.brokerId
@@ -168,18 +178,25 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
       targetState match {
         case NewReplica =>
           assertValidPreviousStates(partitionAndReplica, List(NonExistentReplica), targetState)
+          // 这部分是为每个 Partition 创建对应的 replica 对象, 并将其状态设置为 NewReplica
+          // replica 刚创建时只能做 follower
           // start replica as a follower to the current leader for its partition
+          // 从 zookeeper 获取该 partition 的 leader 和 ISR 集合
           val leaderIsrAndControllerEpochOpt = ReplicationUtils.getLeaderIsrAndEpochForPartition(zkUtils, topic, partition)
           leaderIsrAndControllerEpochOpt match {
             case Some(leaderIsrAndControllerEpoch) =>
+              // 这个状态的 replica 只能做 follower, 不能作为 leader
               if(leaderIsrAndControllerEpoch.leaderAndIsr.leader == replicaId)
                 throw new StateChangeFailedException("Replica %d for partition %s cannot be moved to NewReplica"
                   .format(replicaId, topicAndPartition) + "state as it is being requested to become leader")
+              // 如果该 partition 当前的 leader 不是这个 replica,
+              // 则向所有 replicaId 发送 LeaderAndIsr 请求, 这个方法同时也会向所有的 broker 发送 updateMeta 请求
               brokerRequestBatch.addLeaderAndIsrRequestForBrokers(List(replicaId),
                                                                   topic, partition, leaderIsrAndControllerEpoch,
                                                                   replicaAssignment)
             case None => // new leader request will be sent to this replica when one gets elected
           }
+          // 更新该 replica 的状态
           replicaState.put(partitionAndReplica, NewReplica)
           stateChangeLogger.trace("Controller %d epoch %d changed state of replica %d for partition %s from %s to %s"
                                     .format(controllerId, controller.epoch, replicaId, topicAndPartition, currState,
@@ -216,7 +233,7 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
           replicaState(partitionAndReplica) match {
             case NewReplica =>
               // add this replica to the assigned replicas list for its partition
-              val currentAssignedReplicas = controllerContext.partitionReplicaAssignment(topicAndPartition)
+              val currentAssignedReplicas = controll  erContext.partitionReplicaAssignment(topicAndPartition)
               if(!currentAssignedReplicas.contains(replicaId))
                 controllerContext.partitionReplicaAssignment.put(topicAndPartition, currentAssignedReplicas :+ replicaId)
               stateChangeLogger.trace("Controller %d epoch %d changed state of replica %d for partition %s from %s to %s"
@@ -384,6 +401,7 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
   }
 }
 
+// replica 状态机中 replica 的七种不同状态
 sealed trait ReplicaState { def state: Byte }
 case object NewReplica extends ReplicaState { val state: Byte = 1 }
 case object OnlineReplica extends ReplicaState { val state: Byte = 2 }
