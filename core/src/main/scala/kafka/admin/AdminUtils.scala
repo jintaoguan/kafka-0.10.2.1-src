@@ -113,6 +113,18 @@ object AdminUtils extends Logging with AdminUtilities {
    *                                 assign each replica to a unique rack.
    *
    */
+  /**
+    * 使用 Replica 自动分配算法来分配 Partition 的 replica
+    * 返回一个 Map[Int, Seq[Int]], 表示 Map[PartitionId, List[BrokerId]]
+    * 副本分配时,有三个原则:
+    * 1. 将副本平均分布在所有的 Broker 上;
+    * 2. partition 的多个副本应该分配在不同的 Broker 上;
+    * 3. 如果所有的 Broker 有机架信息的话, partition 的副本应该分配到不同的机架上。
+    *
+    * 为实现上面的目标,在没有机架感知的情况下，应该按照下面两个原则分配 replica:
+    * 1. 从 broker list 随机选择一个 Broker,使用 round-robin 算法分配每个 partition 的第一个副本;
+    * 2. 对于这个 partition 的其他副本,逐渐增加 Broker.id 来选择 replica 的分配。
+    */
   def assignReplicasToBrokers(brokerMetadatas: Seq[BrokerMetadata],
                               nPartitions: Int,
                               replicationFactor: Int,
@@ -135,6 +147,7 @@ object AdminUtils extends Logging with AdminUtilities {
     }
   }
 
+  // 机架不感知(RackUnaware) 分配 replica 算法
   private def assignReplicasToBrokersRackUnaware(nPartitions: Int,
                                                  replicationFactor: Int,
                                                  brokerList: Seq[Int],
@@ -158,6 +171,7 @@ object AdminUtils extends Logging with AdminUtilities {
     ret
   }
 
+  // 机架感知(RackAware) 分配 replica 算法
   private def assignReplicasToBrokersRackAware(nPartitions: Int,
                                                replicationFactor: Int,
                                                brokerMetadatas: Seq[BrokerMetadata],
@@ -388,8 +402,11 @@ object AdminUtils extends Logging with AdminUtilities {
   def topicExists(zkUtils: ZkUtils, topic: String): Boolean =
     zkUtils.pathExists(getTopicPath(topic))
 
+  // getBrokerMetadatas() 获取 topic 的 metadata 信息
+  // 返回一个 Seq[BrokerMetadata] 属性: BrokerMetadata(id: Int, rack: Option[String])
   def getBrokerMetadatas(zkUtils: ZkUtils, rackAwareMode: RackAwareMode = RackAwareMode.Enforced,
                         brokerList: Option[Seq[Int]] = None): Seq[BrokerMetadata] = {
+    // 取得所有 Broker 的信息, 属性 Broker(id: Int, endPoints: Seq[EndPoint], rack: Option[String])
     val allBrokers = zkUtils.getAllBrokersInCluster()
     val brokers = brokerList.map(brokerIds => allBrokers.filter(b => brokerIds.contains(b.id))).getOrElse(allBrokers)
     val brokersWithRack = brokers.filter(_.rack.nonEmpty)
@@ -417,8 +434,12 @@ object AdminUtils extends Logging with AdminUtilities {
                   replicationFactor: Int,
                   topicConfig: Properties = new Properties,
                   rackAwareMode: RackAwareMode = RackAwareMode.Enforced) {
+    // 这里取得一个 Seq[BrokerMetadata],  表示 Broker 与 机架 之间的关系
     val brokerMetadatas = getBrokerMetadatas(zkUtils, rackAwareMode)
+    // 使用 Replica 自动分配算法来分配 Partition 的 replica
     val replicaAssignment = AdminUtils.assignReplicasToBrokers(brokerMetadatas, partitions, replicationFactor)
+    // 将 topic 的 Partition replicas 的更新到 zk 上
+    // 由于 kafka 监控了zookeeper, 会触发 TopicChangeListener.doHandleChildChange() 方法
     AdminUtils.createOrUpdateTopicPartitionAssignmentPathInZK(zkUtils, topic, replicaAssignment, topicConfig)
   }
 

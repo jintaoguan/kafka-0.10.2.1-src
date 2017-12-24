@@ -408,6 +408,7 @@ class PartitionStateMachine(controller: KafkaController) extends Logging {
 
     protected def logName = "TopicChangeListener"
 
+    // 当一个 topic 的 replicas 更新到 zk 上后, 监控 zk 这个目录的方法会被触发 TopicChangeListener.doHandleChildChange() 方法
     def doHandleChildChange(parentPath: String, children: Seq[String]) {
       inLock(controllerContext.controllerLock) {
         if (hasStarted.get) {
