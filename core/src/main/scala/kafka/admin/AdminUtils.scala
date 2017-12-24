@@ -406,6 +406,11 @@ object AdminUtils extends Logging with AdminUtilities {
     brokerMetadatas.sortBy(_.id)
   }
 
+  // kafka.admin.TopicCommand.createTopic() 调用 createTopic()
+  // 如果没有指定 parittion replicas 分配的话, 将会调用 AdminUtils.createTopic 方法创建 topic.
+  // 这个方法首先会检测当前的 Kafka 集群是否机架感知, 如果有的话先获取 Broker 的机架信息,
+  // 接着再使用 Replica 自动分配算法来分配 Partition 的 replica,
+  // 最后就跟指定 replica 方式一样, 将 replicas 的结果更新到 zk 中.
   def createTopic(zkUtils: ZkUtils,
                   topic: String,
                   partitions: Int,

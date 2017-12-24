@@ -30,7 +30,7 @@ public class MyProducerDemo extends Thread {
     private final Boolean isAsync;
 
     public static void main(String[] argc) throws Exception {
-        MyProducerDemo producer = new MyProducerDemo("test", true);
+        MyProducerDemo producer = new MyProducerDemo("test-xxx-123", true);
         producer.start();
         Thread.sleep(1000);
     }

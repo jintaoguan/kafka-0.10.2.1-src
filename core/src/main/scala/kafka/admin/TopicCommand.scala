@@ -88,6 +88,9 @@ object TopicCommand extends Logging {
       allTopics
   }
 
+  // 创建 topic 命令
+  // ./bin/kafka-topics.sh --create --topic test --zookeeper localhost:2181 --partitions 3 --replication-factor 2
+  // 实际上是调用 createTopic() 来创建 topic
   def createTopic(zkUtils: ZkUtils, opts: TopicCommandOptions) {
     val topic = opts.options.valueOf(opts.topicOpt)
     val configs = parseTopicConfigsToBeAdded(opts)
@@ -96,12 +99,18 @@ object TopicCommand extends Logging {
       println("WARNING: Due to limitations in metric names, topics with a period ('.') or underscore ('_') could collide. To avoid issues it is best to use either, but not both.")
     try {
       if (opts.options.has(opts.replicaAssignmentOpt)) {
+        // 如果指定了 partition 各个 replica 的分布, 那么将 partition replicas 的结果验证之后直接更新到 zk 上,
+        // 验证的 replicas 的代码是在 parseReplicaAssignment 中实现的
         val assignment = parseReplicaAssignment(opts.options.valueOf(opts.replicaAssignmentOpt))
         AdminUtils.createOrUpdateTopicPartitionAssignmentPathInZK(zkUtils, topic, assignment, configs, update = false)
       } else {
+        // 如果没有指定 parittion replicas 分配的话，将会调用 AdminUtils.createTopic 方法创建 topic
         CommandLineUtils.checkRequiredArgs(opts.parser, opts.options, opts.partitionsOpt, opts.replicationFactorOpt)
+        // partition 个数
         val partitions = opts.options.valueOf(opts.partitionsOpt).intValue
+        // replica 个数
         val replicas = opts.options.valueOf(opts.replicationFactorOpt).intValue
+        // 是否使用机架感知, 默认使用机架感知模式
         val rackAwareMode = if (opts.options.has(opts.disableRackAware)) RackAwareMode.Disabled
                             else RackAwareMode.Enforced
         AdminUtils.createTopic(zkUtils, topic, partitions, replicas, configs, rackAwareMode)
@@ -254,16 +263,23 @@ object TopicCommand extends Logging {
       Seq.empty
   }
 
+  // 返回一个 Map[Int, List[Int]] 表示的是 Map[PartitionId, List[BrokerId]].
+  // key 是 PartitionId, value 是每个 replica 所在的 BrokerId (不允许出现重复)
   def parseReplicaAssignment(replicaAssignmentList: String): Map[Int, List[Int]] = {
+    // 取得每个 partition 的 replica 列表
     val partitionList = replicaAssignmentList.split(",")
     val ret = new mutable.HashMap[Int, List[Int]]()
+    // 对于每个 partition
     for (i <- 0 until partitionList.size) {
+      // 由 ":" 分割开的 broker id, 表示每个 replica 所在的 broker
       val brokerList = partitionList(i).split(":").map(s => s.trim().toInt)
       val duplicateBrokers = CoreUtils.duplicates(brokerList)
       if (duplicateBrokers.nonEmpty)
+        // 不允许相同的 broker 包含多个属于相同 partition 的 replica
         throw new AdminCommandFailedException("Partition replica lists may not contain duplicate entries: %s".format(duplicateBrokers.mkString(",")))
       ret.put(i, brokerList.toList)
       if (ret(i).size != ret(0).size)
+        // 所有的 partition 必须包含相同的 replica 数量
         throw new AdminOperationException("Partition " + i + " has different replication factor: " + brokerList)
     }
     ret.toMap
