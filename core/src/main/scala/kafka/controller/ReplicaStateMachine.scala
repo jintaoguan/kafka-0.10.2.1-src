@@ -232,6 +232,7 @@ class ReplicaStateMachine(controller: KafkaController) extends Logging {
             List(NewReplica, OnlineReplica, OfflineReplica, ReplicaDeletionIneligible), targetState)
           replicaState(partitionAndReplica) match {
             case NewReplica =>
+              // 将 Replica 对象的状态由 NewReplica 更新为 OnlineReplica 状态
               // add this replica to the assigned replicas list for its partition
               val currentAssignedReplicas = controllerContext.partitionReplicaAssignment(topicAndPartition)
               if(!currentAssignedReplicas.contains(replicaId))

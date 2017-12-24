@@ -206,10 +206,12 @@ class PartitionStateMachine(controller: KafkaController) extends Logging {
                                             assignedReplicas))
           // post: partition has been assigned replicas
         case OnlinePartition =>
+          // 将 partition 对象的状态由 NewPartition 设置为 OnlinePartition
           assertValidPreviousStates(topicAndPartition, List(NewPartition, OnlinePartition, OfflinePartition), OnlinePartition)
           partitionState(topicAndPartition) match {
             case NewPartition =>
               // initialize leader and isr path for new partition
+              // 如果当前状态是 NewPartition, 则为这个 partition 初始化 leader 和 ISR 集合
               initializeLeaderAndIsrForPartition(topicAndPartition)
             case OfflinePartition =>
               electLeaderForPartition(topic, partition, leaderSelector)
@@ -281,6 +283,10 @@ class PartitionStateMachine(controller: KafkaController) extends Logging {
    * OfflinePartition state.
    * @param topicAndPartition   The topic/partition whose leader and isr path is to be initialized
    */
+  // 当 partition 对象的状态由 NewPartition 变为 OnlinePartition 时被触发, 用来初始化该 partition 的 leader 和 ISR
+  // 简单来说, 就是选取 Replicas 中的第一个 Replica 作为 leader, 所有的 Replica 作为 isr.
+  // 最后调用 brokerRequestBatch.addLeaderAndIsrRequestForBrokers() 向所有 replicaId 发送 LeaderAndIsr 请求
+  // 以及向所有的 broker 发送 UpdateMetadata 请求
   private def initializeLeaderAndIsrForPartition(topicAndPartition: TopicAndPartition) {
     val replicaAssignment = controllerContext.partitionReplicaAssignment(topicAndPartition)
     val liveAssignedReplicas = replicaAssignment.filter(r => controllerContext.liveBrokerIds.contains(r))
