@@ -52,8 +52,9 @@ class ControllerContext(val zkUtils: ZkUtils) {
   var epoch: Int = KafkaController.InitialControllerEpoch - 1
   var epochZkVersion: Int = KafkaController.InitialControllerEpochZkVersion - 1
   var allTopics: Set[String] = Set.empty
-  // 核心变量, 记录了由 partition 到 <?> 的映射
+  // 核心变量, 记录了由 partition 到 replica 所在的 brokerId 的映射, 表示该 partition 的 replica 在哪些 broker 上
   var partitionReplicaAssignment: mutable.Map[TopicAndPartition, Seq[Int]] = mutable.Map.empty
+  // 核心变量, 记录了由 partition 到 leader 和 ISR 的映射
   var partitionLeadershipInfo: mutable.Map[TopicAndPartition, LeaderIsrAndControllerEpoch] = mutable.Map.empty
   val partitionsBeingReassigned: mutable.Map[TopicAndPartition, ReassignedPartitionsContext] = new mutable.HashMap
   val partitionsUndergoingPreferredReplicaElection: mutable.Set[TopicAndPartition] = new mutable.HashSet

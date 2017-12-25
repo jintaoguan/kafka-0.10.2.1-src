@@ -284,11 +284,13 @@ class PartitionStateMachine(controller: KafkaController) extends Logging {
    * @param topicAndPartition   The topic/partition whose leader and isr path is to be initialized
    */
   // 当 partition 对象的状态由 NewPartition 变为 OnlinePartition 时被触发, 用来初始化该 partition 的 leader 和 ISR
-  // 简单来说, 就是选取 Replicas 中的第一个 Replica 作为 leader, 所有的 Replica 作为 isr.
+  // 简单来说, 就是选取 Replicas 中的第一个 replica 作为 leader, 所有的 replica 作为 ISR.
   // 最后调用 brokerRequestBatch.addLeaderAndIsrRequestForBrokers() 向所有 replicaId 发送 LeaderAndIsr 请求
   // 以及向所有的 broker 发送 UpdateMetadata 请求
   private def initializeLeaderAndIsrForPartition(topicAndPartition: TopicAndPartition) {
+    // 获得该 partition 的所有 replica 所在的 brokerId
     val replicaAssignment = controllerContext.partitionReplicaAssignment(topicAndPartition)
+    // 获取当前存活的 brokerId
     val liveAssignedReplicas = replicaAssignment.filter(r => controllerContext.liveBrokerIds.contains(r))
     liveAssignedReplicas.size match {
       case 0 =>
@@ -300,18 +302,23 @@ class PartitionStateMachine(controller: KafkaController) extends Logging {
       case _ =>
         debug("Live assigned replicas for partition %s are: [%s]".format(topicAndPartition, liveAssignedReplicas))
         // make the first replica in the list of assigned replicas, the leader
+        // 让第一个 replica (brokerId) 成为 leader
         val leader = liveAssignedReplicas.head
+        // 让所有的 replica (brokerId) 成为 ISR
         val leaderIsrAndControllerEpoch = new LeaderIsrAndControllerEpoch(new LeaderAndIsr(leader, liveAssignedReplicas.toList),
           controller.epoch)
         debug("Initializing leader and isr for partition %s to %s".format(topicAndPartition, leaderIsrAndControllerEpoch))
         try {
+          // 将 leader 和 ISR 更新到 zookeeper 上
           zkUtils.createPersistentPath(
             getTopicPartitionLeaderAndIsrPath(topicAndPartition.topic, topicAndPartition.partition),
             zkUtils.leaderAndIsrZkData(leaderIsrAndControllerEpoch.leaderAndIsr, controller.epoch))
           // NOTE: the above write can fail only if the current controller lost its zk session and the new controller
           // took over and initialized this partition. This can happen if the current controller went into a long
           // GC pause
+          // 更新 partition 对应的 leader 和 ISR
           controllerContext.partitionLeadershipInfo.put(topicAndPartition, leaderIsrAndControllerEpoch)
+          // 将该 partition 的 leader 和 ISR 信息发送给所有的 replica 所在的 broker
           brokerRequestBatch.addLeaderAndIsrRequestForBrokers(liveAssignedReplicas, topicAndPartition.topic,
             topicAndPartition.partition, leaderIsrAndControllerEpoch, replicaAssignment)
         } catch {
