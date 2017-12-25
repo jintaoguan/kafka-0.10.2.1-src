@@ -50,11 +50,14 @@ import scala.util.control.{ControlThrowable, NonFatal}
  *   Acceptor has N Processor threads that each have their own selector and read requests from sockets
  *   M Handler threads that handle requests and produce responses back to the processor threads for writing.
  */
+// SocketServer 是对一个 broker 的相关 ServerSocket 的抽象, 用于管理这个 broker 的底层 socket 连接
 class SocketServer(val config: KafkaConfig, val metrics: Metrics, val time: Time, val credentialProvider: CredentialProvider) extends Logging with KafkaMetricsGroup {
 
   private val endpoints = config.listeners.map(l => l.listenerName -> l).toMap
+  // Acceptor (每个 endpoint 都有一个 Acceptor 对象) 可以创建的 processor 线程的个数
   private val numProcessorThreads = config.numNetworkThreads
   private val maxQueuedRequests = config.queuedMaxRequests
+  // 总共创建的 processor 线程数量 (每个 endpoint 会创建 numProcessorThreads 个线程)
   private val totalProcessorThreads = numProcessorThreads * endpoints.size
 
   private val maxConnectionsPerIp = config.maxConnectionsPerIp
@@ -63,8 +66,10 @@ class SocketServer(val config: KafkaConfig, val metrics: Metrics, val time: Time
   this.logIdent = "[Socket Server on Broker " + config.brokerId + "], "
 
   val requestChannel = new RequestChannel(totalProcessorThreads, maxQueuedRequests)
+  // processors 是一个数组, 用于对所有的 processor 的索引
   private val processors = new Array[Processor](totalProcessorThreads)
 
+  // acceptors 是一个 Map[EndPoint, Acceptor]
   private[network] val acceptors = mutable.Map[EndPoint, Acceptor]()
   private var connectionQuotas: ConnectionQuotas = _
 
@@ -82,8 +87,11 @@ class SocketServer(val config: KafkaConfig, val metrics: Metrics, val time: Time
 
       connectionQuotas = new ConnectionQuotas(maxConnectionsPerIp, maxConnectionsPerIpOverrides)
 
+      // 发送数据的 buffer 大小
       val sendBufferSize = config.socketSendBufferBytes
+      // 接收数据的 buffer 大小
       val recvBufferSize = config.socketReceiveBufferBytes
+      // 本机的 brokerId
       val brokerId = config.brokerId
 
       var processorBeginIndex = 0
@@ -92,12 +100,15 @@ class SocketServer(val config: KafkaConfig, val metrics: Metrics, val time: Time
         val securityProtocol = endpoint.securityProtocol
         val processorEndIndex = processorBeginIndex + numProcessorThreads
 
+        // 对于每个 endpoint, 根据 numProcessorThreads 创建多个 processor
         for (i <- processorBeginIndex until processorEndIndex)
           processors(i) = newProcessor(i, connectionQuotas, listenerName, securityProtocol)
 
+        // 对于这个 endpoint 创建其对应的 Acceptor
         val acceptor = new Acceptor(endpoint, sendBufferSize, recvBufferSize, brokerId,
           processors.slice(processorBeginIndex, processorEndIndex), connectionQuotas)
         acceptors.put(endpoint, acceptor)
+        // 创建并启动这个 Acceptor 线程
         Utils.newThread(s"kafka-socket-acceptor-$listenerName-$securityProtocol-${endpoint.port}", acceptor, false).start()
         acceptor.awaitStartup()
 
@@ -244,6 +255,7 @@ private[kafka] abstract class AbstractServerThread(connectionQuotas: ConnectionQ
 /**
  * Thread that accepts and configures new connections. There is one of these per endpoint.
  */
+// Acceptor 线程用于 accept 新的连接, 每个 endpoint 都会有一个自己的 Acceptor
 private[kafka] class Acceptor(val endPoint: EndPoint,
                               val sendBufferSize: Int,
                               val recvBufferSize: Int,
@@ -311,6 +323,7 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
   /*
    * Create a server socket to listen for connections on.
    */
+  // 创建 ServerSocket 并监听连接
   private def openServerSocket(host: String, port: Int): ServerSocketChannel = {
     val socketAddress =
       if(host == null || host.trim.isEmpty)
