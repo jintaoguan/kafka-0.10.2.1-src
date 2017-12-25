@@ -493,24 +493,24 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             }
 
             // 计算record的partition的过程, 由3个步骤组成
-            // 1. 如果用户已为record显式地设置了partition, 那么就用用户设置的partition
-            // 2. 如果record没有设置partition, 那么由默认的DefaultPartitioner来计算record的partition
-            //    1). 如果record有key, 就用 (该key的murmur2 hash值 % partitions.size()) 来确定partition
-            //    2). 如果record没有key, 就用 (该topic的record计数器 % availablePartitions.size()) 来确定partition
+            // 1. 如果用户已为 record 显式地设置了 partition, 那么就用用户设置的 partition
+            // 2. 如果 record 没有设置 partition, 那么由默认的 DefaultPartitioner 来计算 record 的 partition
+            //    1). 如果 record 有 key, 就用 (该key的murmur2 hash值 % partitions.size()) 来确定 partition
+            //    2). 如果 record 没有 key, 就用 (该topic的record计数器 % availablePartitions.size()) 来确定 partition
             int partition = partition(record, serializedKey, serializedValue, cluster);
 
-            // 计算序列化之后的record(key/value pair)所占的字节数
+            // 计算序列化之后的 record(key/value pair) 所占的字节数
             int serializedSize = Records.LOG_OVERHEAD + Record.recordSize(serializedKey, serializedValue);
             ensureValidRecordSize(serializedSize);
 
-            // 创建TopicPartition对象，用于获得RecordAccumulator的buffer中的batch队列
+            // 创建 TopicPartition 对象，用于获得 RecordAccumulator 的 buffer 中的 batch 队列
             tp = new TopicPartition(record.topic(), partition);
             long timestamp = record.timestamp() == null ? time.milliseconds() : record.timestamp();
             log.trace("Sending record {} with callback {} to topic {} partition {}", record, callback, record.topic(), partition);
 
             // producer callback will make sure to call both 'callback' and interceptor callback
-            // 这里新建的InterceptorCallback对象既包含了Interceptor对象(实现了onSend(), onAcknowledgement()和onSendError()),
-            // 也包含了Callback对象(实现了onCompletion()). 将这个InterceptorCallback对象传给RecordAccumulator, 由它执行
+            // 这里新建的 InterceptorCallback 对象既包含了 Interceptor 对象(实现了onSend(), onAcknowledgement()和onSendError()),
+            // 也包含了 Callback对象 (实现了onCompletion()). 将这个 InterceptorCallback 对象传给 RecordAccumulator, 由它执行
             Callback interceptCallback = this.interceptors == null ? callback : new InterceptorCallback<>(callback, this.interceptors, tp);
 
             // 把序列化之后的key与value放入RecordAccumulator的buffer中
