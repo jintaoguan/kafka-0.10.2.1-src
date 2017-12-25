@@ -54,6 +54,16 @@ import java.util.Set;
  * <p>
  * This class is not thread-safe!
  */
+
+/**
+ * NetworkClient 的使用:
+ * 1. kafka 本身实现了 java 版的 producer 和 consumer, 里面的网络连接 ,请求发送均使用 NetworkClient 实现
+ * 2. KafkaController 中 controller 与其他 broker 的通讯, 使用 NetworkClient 实现
+ *
+ * NetworkClient 非线程安全, 继承自 KafkaClient
+ * 使用了 org.apache.kafka.common.network.Selector 来处理网络IO
+ * 简单讲这个类用来管理一个到 broker node 的连接，请求发送和响应接收.
+ */
 public class NetworkClient implements KafkaClient {
 
     private static final Logger log = LoggerFactory.getLogger(NetworkClient.class);

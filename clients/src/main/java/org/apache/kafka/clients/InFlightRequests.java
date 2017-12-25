@@ -23,9 +23,13 @@ import java.util.Map;
 /**
  * The set of requests which have been sent or are being sent but haven't yet received a response
  */
+// InFlightRequests 实现了 request 的集合, 包括正在发送的和已经发送的但还没有接收到 response 的 request.
+// InFlightRequests 队列中的元素是客户端请求对象, 它是有状态的, 比如这个请求是否已经发送完成就是一种状态.
+// 请求发送完成并不代表就可以从队列中移除, 不过如果客户端不需要响应结果发送完成则是可以删除的.
 final class InFlightRequests {
 
     private final int maxInFlightRequestsPerConnection;
+    // 核心变量, 针对每个 node(connection) 使用 Deque<NetworkClient.ClientRequest> 双端队列来保存所有发往这个 node 的 request
     private final Map<String, Deque<NetworkClient.InFlightRequest>> requests = new HashMap<>();
 
     public InFlightRequests(int maxInFlightRequestsPerConnection) {
@@ -35,6 +39,7 @@ final class InFlightRequests {
     /**
      * Add the given request to the queue for the connection it was directed to
      */
+    // 添加新的 request, 新的 reqeust 总是通过 addFirst() 放到队首
     public void add(NetworkClient.InFlightRequest request) {
         String destination = request.destination;
         Deque<NetworkClient.InFlightRequest> reqs = this.requests.get(destination);
@@ -58,6 +63,7 @@ final class InFlightRequests {
     /**
      * Get the oldest request (the one that that will be completed next) for the given node
      */
+    // 取出最早发送的request, 通过 pollLast() 取出
     public NetworkClient.InFlightRequest completeNext(String node) {
         return requestQueue(node).pollLast();
     }
@@ -85,6 +91,8 @@ final class InFlightRequests {
      * @param node Node in question
      * @return true iff we have no requests still being sent to the given node
      */
+    // 决定是否可以通过 NetworkClient 来发送请求
+    // 对于通过 NetworkClient 来发送的 request, 如果之前发送的请求并没有通过底层 socket 实际发送完成, 是不允许发送新的 request 的
     public boolean canSendMore(String node) {
         Deque<NetworkClient.InFlightRequest> queue = requests.get(node);
         return queue == null || queue.isEmpty() ||

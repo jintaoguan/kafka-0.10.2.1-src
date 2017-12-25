@@ -19,8 +19,13 @@ import java.util.Map;
  * The state of our connection to each node in the cluster.
  * 
  */
+// ClusterConnectionStates 记录了 client 到各个 broker node 的连接状态
+// 总共四种连接状态: DISCONNECTED, CONNECTING, CHECKING_API_VERSIONS, READY
 final class ClusterConnectionStates {
+
+    // reconnectBackoffMs 表示对同一个 node 的两次连接有一定的时间间隔限制, 即采用延迟连接
     private final long reconnectBackoffMs;
+    // nodeState 记录了 client 到各个 broker node 的连接状态
     private final Map<String, NodeConnectionState> nodeState;
 
     public ClusterConnectionStates(long reconnectBackoffMs) {
@@ -35,6 +40,7 @@ final class ClusterConnectionStates {
      * @param now the current time in MS
      * @return true if we can initiate a new connection
      */
+    // 判断是否允许连接到node: 如果 1) 从未连接过 或者 2) 连接当前是断开的并且距离上次连接的间隔大于 reconnectBackoffMs, 则允许连接
     public boolean canConnect(String id, long now) {
         NodeConnectionState state = nodeState.get(id);
         if (state == null)
