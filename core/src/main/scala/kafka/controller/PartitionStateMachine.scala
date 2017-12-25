@@ -211,7 +211,7 @@ class PartitionStateMachine(controller: KafkaController) extends Logging {
           partitionState(topicAndPartition) match {
             case NewPartition =>
               // initialize leader and isr path for new partition
-              // 如果当前状态是 NewPartition, 则为这个 partition 初始化 leader 和 ISR 集合
+              // 如果当前状态是 NewPartition, 则为这个 partition 初始化 leader 和 ISR 集合 => leader 选举
               initializeLeaderAndIsrForPartition(topicAndPartition)
             case OfflinePartition =>
               electLeaderForPartition(topic, partition, leaderSelector)

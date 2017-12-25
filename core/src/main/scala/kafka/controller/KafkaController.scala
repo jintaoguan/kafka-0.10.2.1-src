@@ -529,13 +529,22 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
   // 这个方法就是对 partition 状态机 和 replica 状态机中的 partition 和 replica 状态进行调整.
   def onNewPartitionCreation(newPartitions: Set[TopicAndPartition]) {
     info("New partition creation callback for %s".format(newPartitions.mkString(",")))
-    // 创建 Partition 对象, 并将其状态置为 NewPartition 状态
+    // 在 partition 状态机中创建 Partition 对象, 并将其状态置为 NewPartition 状态
+    // 既然叫 partition 状态机, 必然有个地方要保存 Kafka 集群下所有 topic 的所有分区的状态.
+    // 每当有新 topic 创建时, 就需要把新增 topic 所有分区加入这部分缓存, 以达到同步的效果. 新增的分区状态统一设置成 NewPartition
     partitionStateMachine.handleStateChanges(newPartitions, NewPartition)
-    // 创建 Replica 对象, 并将其状态置为 NewReplica 状态
+    // 在 replica 状态机中创建 Replica 对象, 并将其状态置为 NewReplica 状态
+    // 首先从 controller 缓存中找出这个分区对应的分配方案, 然后把这个 partition 下的所有副本都设置成 NewReplica 状态.
+    // 对于创建topic来说, 目前这个 topic 的所有 partition 都没有 leader 和 ISR 信息, 后面会开始选举.
     replicaStateMachine.handleStateChanges(controllerContext.replicasForPartition(newPartitions), NewReplica)
+    // 前2步创建了分区对象和副本对象, 并分别设置成了 NewPartition 和 NewReplica 状态
     // 将 partition 对象从 NewPartition 改为 OnlinePartition 状态
+    // 这一步就要把分区状态转换到 OnlinePartition, 只有处于此状态才可以正常使用. 这也是这一步需要做的事情: leader选举
+    // --> 这一步最重要: initializeLeaderAndIsrForPartition(topicAndPartition) <--
     partitionStateMachine.handleStateChanges(newPartitions, OnlinePartition, offlinePartitionSelector)
     // 将 Replica 对象从 NewReplica 改为 OnlineReplica 状态
+    // 目前所有的分区都已经选好了 leader 和 ISR 并已经持久化到zookeeper中, 当然还都传播到了其他broker上.
+    // 那么这最后一步就是将副本状态机中缓存的副本状态从 NewReplica 转换到 OnlineReplica 状态.
     replicaStateMachine.handleStateChanges(controllerContext.replicasForPartition(newPartitions), OnlineReplica)
   }
 
