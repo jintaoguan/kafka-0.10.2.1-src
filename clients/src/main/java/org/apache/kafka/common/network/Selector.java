@@ -81,8 +81,8 @@ public class Selector implements Selectable {
     private static final Logger log = LoggerFactory.getLogger(Selector.class);
 
     private final java.nio.channels.Selector nioSelector;
-    // 维护了 NodeId 与 KafkaChannel 之间的映射关系, 表示生产者客户端与多个 Node 之间的网络连接
-    // KafkaChannel 是在 SocketChannel 上层的封装
+    // 维护了 ConnectionId 与 KafkaChannel 之间的映射关系, 表示生产者客户端与 Node 之间的网络连接
+    // KafkaChannel 是在 SocketChannel 上层的封装, 描述客户端连接的 socket channel
     private final Map<String, KafkaChannel> channels;
     // 记录已经完全发送出去的请求
     private final List<Send> completedSends;
@@ -222,9 +222,12 @@ public class Selector implements Selectable {
      * Use this on server-side, when a connection is accepted by a different thread but processed by the Selector
      * Note that we are not checking if the connection id is valid - since the connection already exists
      */
+    // 在这个 KSelector 上注册 OP_READ 事件
     public void register(String id, SocketChannel socketChannel) throws ClosedChannelException {
+        // 将该 SocketChannel 的 OP_READ 事件注册到 KSelector 上
         SelectionKey key = socketChannel.register(nioSelector, SelectionKey.OP_READ);
         KafkaChannel channel = channelBuilder.buildChannel(id, key, maxReceiveSize);
+        // 我们可以给一个 SelectionKey 附加一个 Object, 可以方便我们识别某个特定的 channel, 同时也增加了 channel 相关的附加信息
         key.attach(channel);
         this.channels.put(id, channel);
     }

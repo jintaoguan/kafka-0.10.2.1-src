@@ -179,9 +179,14 @@ object RequestChannel extends Logging {
   case object CloseConnectionAction extends ResponseAction
 }
 
+// RequestChannel 是 Processor 和 Handler 交换数据的地方.
+// 它包含了一个队列 requestQueue 用来存放 Processor 加入的 Request, Handler 会从里面取出 Request 来处理.
+// 它还为每个 Processor 开辟了一个 respondQueue, 用来存放 Handler 处理了 Request 后给客户端的 Response
 class RequestChannel(val numProcessors: Int, val queueSize: Int) extends KafkaMetricsGroup {
   private var responseListeners: List[(Int) => Unit] = Nil
+  // requestQueue 用来存放 Processor 加入的 Request, Handler 会从里面取出 Request 来处理
   private val requestQueue = new ArrayBlockingQueue[RequestChannel.Request](queueSize)
+  // 每个 Processor 拥有一个 respondQueue, 用来存放 Handler 处理了 Request 后给客户端的 Response
   private val responseQueues = new Array[BlockingQueue[RequestChannel.Response]](numProcessors)
   for(i <- 0 until numProcessors)
     responseQueues(i) = new LinkedBlockingQueue[RequestChannel.Response]()

@@ -68,6 +68,7 @@ class SocketServer(val config: KafkaConfig, val metrics: Metrics, val time: Time
 
   this.logIdent = "[Socket Server on Broker " + config.brokerId + "], "
 
+  // 为每一个 processor 线程创建一个双端队列
   val requestChannel = new RequestChannel(totalProcessorThreads, maxQueuedRequests)
   // processors 是一个数组, 用于对所有的 processor 的索引
   private val processors = new Array[Processor](totalProcessorThreads)
@@ -284,12 +285,13 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
   /**
    * Accept loop that checks for new connection attempts
    */
-  // 利用 NIO 的 selector 来接收网络连接
+  // Acceptor 接收 request 的核心方法. 利用 NIO 的 selector 来接收网络连接.
   def run() {
     // 在 selector 注册 SelectionKey.OP_ACCEPT 事件, SelectionKey 是表示一个 Channel 和 Selector 的注册关系。
     // 在 Acceptor 中的 selector, 只有监听客户端连接请求的 ServerSocketChannel 的 OP_ACCEPT 事件注册在上面。
     // 当 selector 的 select 方法返回时, 则表示注册在它上面的 Channel 发生了对应的事件。
     // 在 Acceptor 中, 这个事件就是 OP_ACCEPT, 表示这个 ServerSocketChannel 的 OP_ACCEPT 事件发生了.
+    // 四种事件 1) OP_ACCEPT, 2) OP_CONNECT, 3) OP_READ, 4) OP_WRITE
     serverChannel.register(nioSelector, SelectionKey.OP_ACCEPT)
     startupComplete()
     try {
@@ -297,15 +299,18 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
       while (isRunning) {
         try {
           // 开始等待客户端的连接请求
-          // 当 selector 的 select 方法返回时, 则表示注册在它上面的 Channel 发生了对应的事件。
+          // 在调用 select() 并返回了有 channel 就绪之后，可以通过选中的 key 集合来获取 channel.
+          // 当 selector 的 select 方法返回时, 则表示注册在它上面的 Channel 发生了对应的事件.
           val ready = nioSelector.select(500)
           if (ready > 0) {
+            // 可以通过选中的 key 集合来获取 channel
             val keys = nioSelector.selectedKeys()
             val iter = keys.iterator()
             while (iter.hasNext && isRunning) {
               try {
                 val key = iter.next
                 iter.remove()
+                // a connection was accepted by a ServerSocketChannel
                 if (key.isAcceptable)
                   // 接受一个新的网络连接, 通过 currentProcessor 索引到一个 processor 并由它处理
                   accept(key, processors(currentProcessor))
@@ -370,6 +375,11 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
    * Accept a new connection
    */
   // 接受一个网络连接, 并交给 processor 处理
+  // Acceptor 的 accept 方法的处理逻辑为:
+  // 1) 首先通过 SelectionKey 来拿到对应的 ServerSocketChannel
+  // 2）调用 ServerSocketChannel 的 accept 方法来建立和客户端的连接
+  // 3) 然后拿到对应的 SocketChannel 并交给了 processor 处理
+  // 4) 然后Acceptor的任务就完成了, 开始去处理下一个客户端的连接请求.
   def accept(key: SelectionKey, processor: Processor) {
     // 获取 ServerSocketChannel 对象
     val serverSocketChannel = key.channel().asInstanceOf[ServerSocketChannel]
@@ -412,7 +422,9 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
  * Thread that processes all requests from a single connection. There are N of these running in parallel
  * each of which has its own selector
  */
-// 从单个连接进来的 request 都由 processor 线程处理
+// 从单个连接进来的 request 都由 processor 线程处理.
+// 它的主要职责是负责从客户端读取数据和将响应返回给客户端, 它本身不处理具体的业务逻辑, 也就是说它并不认识它从客户端读取回来的数据.
+// 每个 Processor 都有一个 KSelector, 用来监听多个客户端, 因此可以非阻塞地处理多个客户端的读写请求.
 private[kafka] class Processor(val id: Int,
                                time: Time,
                                maxRequestSize: Int,
@@ -463,13 +475,13 @@ private[kafka] class Processor(val id: Int,
     false,
     ChannelBuilders.serverChannelBuilder(securityProtocol, channelConfigs, credentialProvider.credentialCache))
 
-  // processor 处理 request 的核心方法
+  // processor 处理 request 的核心方法.
   override def run() {
     startupComplete()
     while (isRunning) {
       try {
         // setup any new connections that have been queued up
-        // 从并发队列里取出客户端 SocketChannel, 添加到自身的 KSelector中, 监听读事件
+        // 从并发队列里取出客户端 SocketChannel, 添加到自身的 KSelector中, 监听该 channel 的读事件
         configureNewConnections()
         // register any new responses for writing
         // 处理当前所有处理完成的 request 相应的response, 这些 response 都是从 RequestChannel 获得 (requestChannel.receiveResponse)
@@ -594,18 +606,21 @@ private[kafka] class Processor(val id: Int,
   /**
    * Queue up a new connection for reading
    */
-  // 将新连接的 SocketChannel 保存到并发队列Q1中
+  // 将新连接的 SocketChannel 保存到并发队列中
+  // 由于只是简单的将 SocketChannel 对象保存到队列中, 所以每个 Processor 都会处理多个客户端的请求
   def accept(socketChannel: SocketChannel) {
     newConnections.add(socketChannel)
+    // 唤醒 Processor 的 selector
     wakeup()
   }
 
   /**
    * Register any new connections that have been queued up
    */
-  // 从并发队列里取出 SocketChannel, 添加到自身的 KSelector 中, 监听读事件
+  // 如果有队列中有新的 SocketChannel, 则它首先将其 OP_READ 事情注册到该 Processor 的 KSelector上面, 监听读事件
   private def configureNewConnections() {
     while (!newConnections.isEmpty) {
+      // 取得新连接的客户端 SocketChannel 对象
       val channel = newConnections.poll()
       try {
         debug(s"Processor $id listening to new connection from ${channel.socket.getRemoteSocketAddress}")
@@ -616,6 +631,7 @@ private[kafka] class Processor(val id: Int,
         // [localHost: String, localPort: Int, remoteHost: String, remotePort: Int] 四元组组成 ConnectionId
         val connectionId = ConnectionId(localHost, localPort, remoteHost, remotePort).toString
         // 注册这个 connection 到 KSelector
+        // 将这个客户端的 SocketChannel 的 OP_READ 事情注册到该 Processor 的 KSelector上面, 监听该 channel 的读事件
         selector.register(connectionId, channel)
       } catch {
         // We explicitly catch all non fatal exceptions and close the socket to avoid a socket leak. The other
