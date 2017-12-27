@@ -82,6 +82,7 @@ class SocketServer(val config: KafkaConfig, val metrics: Metrics, val time: Time
   /**
    * Start the socket server
    */
+  // kafka 启动时会通过 KafkaServer 对象调用 startup() 方法
   def startup() {
     this.synchronized {
 
@@ -104,12 +105,13 @@ class SocketServer(val config: KafkaConfig, val metrics: Metrics, val time: Time
         for (i <- processorBeginIndex until processorEndIndex)
           processors(i) = newProcessor(i, connectionQuotas, listenerName, securityProtocol)
 
-        // 对于这个 endpoint 创建其对应的 Acceptor
+        // 对于这个 endpoint 创建其对应的 Acceptor (关联其对应的 processor 线程)
         val acceptor = new Acceptor(endpoint, sendBufferSize, recvBufferSize, brokerId,
           processors.slice(processorBeginIndex, processorEndIndex), connectionQuotas)
         acceptors.put(endpoint, acceptor)
         // 创建并启动这个 Acceptor 线程
         Utils.newThread(s"kafka-socket-acceptor-$listenerName-$securityProtocol-${endpoint.port}", acceptor, false).start()
+        // 通过 Acceptor 中的 latch 阻塞住 startup() 线程, 直到 Acceptor 完全启动
         acceptor.awaitStartup()
 
         processorBeginIndex = processorEndIndex
@@ -330,12 +332,16 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
         new InetSocketAddress(port)
       else
         new InetSocketAddress(host, port)
+    // 创建一个 ServerSocketChannel 对象
     val serverChannel = ServerSocketChannel.open()
+    // 将这个 ServerSocketChannel 配置成非阻塞模式
     serverChannel.configureBlocking(false)
+    // 配置接受 buffer 大小
     if (recvBufferSize != Selectable.USE_DEFAULT_BUFFER_SIZE)
       serverChannel.socket().setReceiveBufferSize(recvBufferSize)
 
     try {
+      // 将这个 ServerSocketChannel 绑定到指定的 socket address
       serverChannel.socket.bind(socketAddress)
       info("Awaiting socket connections on %s:%d.".format(socketAddress.getHostString, serverChannel.socket.getLocalPort))
     } catch {
