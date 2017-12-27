@@ -184,6 +184,7 @@ object RequestChannel extends Logging {
 // 它还为每个 Processor 开辟了一个 respondQueue, 用来存放 Handler 处理了 Request 后给客户端的 Response
 class RequestChannel(val numProcessors: Int, val queueSize: Int) extends KafkaMetricsGroup {
   private var responseListeners: List[(Int) => Unit] = Nil
+  // 初始化 requestQueue 和 responseQueues
   // requestQueue 用来存放 Processor 加入的 Request, Handler 会从里面取出 Request 来处理
   private val requestQueue = new ArrayBlockingQueue[RequestChannel.Request](queueSize)
   // 每个 Processor 拥有一个 respondQueue, 用来存放 Handler 处理了 Request 后给客户端的 Response
@@ -212,6 +213,9 @@ class RequestChannel(val numProcessors: Int, val queueSize: Int) extends KafkaMe
   }
 
   /** Send a request to be handled, potentially blocking until there is room in the queue for the request */
+  // sendRequest() 方法:
+  // Processor 在读取完数据后, 将数据封装成一个 Request 对象然后调用这个方法将 Request 添加到 requestQueue 中.
+  // 如果 requestQueue 满的话 (ArrayBlockingQueue), 这个方法会阻塞在这里直到有 Handler 取走一个 Request.
   def sendRequest(request: RequestChannel.Request) {
     requestQueue.put(request)
   }
@@ -238,14 +242,19 @@ class RequestChannel(val numProcessors: Int, val queueSize: Int) extends KafkaMe
   }
 
   /** Get the next request or block until specified time has elapsed */
+  // Handler 从 requestQueue 中取出 Request
   def receiveRequest(timeout: Long): RequestChannel.Request =
     requestQueue.poll(timeout, TimeUnit.MILLISECONDS)
 
   /** Get the next request or block until there is one */
+  // receiveRequest() 方法:
+  // Handler 从 requestQueue 中取出 Request
+  // 如果队列为空, 这个方法会阻塞在这里直到有 Processor 加入新的 Request. (ArrayBlockingQueue)
   def receiveRequest(): RequestChannel.Request =
     requestQueue.take()
 
   /** Get a response for the given processor if there is one */
+  // Handler 从指定 processor 的 requestQueue 中取出 Request.
   def receiveResponse(processor: Int): RequestChannel.Response = {
     val response = responseQueues(processor).poll()
     if (response != null)

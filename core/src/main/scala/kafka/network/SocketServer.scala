@@ -60,7 +60,7 @@ class SocketServer(val config: KafkaConfig, val metrics: Metrics, val time: Time
   // Acceptor (每个 endpoint 都有一个 Acceptor 对象) 可以创建的 processor 线程的个数
   private val numProcessorThreads = config.numNetworkThreads
   private val maxQueuedRequests = config.queuedMaxRequests
-  // 总共创建的 processor 线程数量 (每个 endpoint 会创建 numProcessorThreads 个线程)
+  // 总共创建的 processor 线程数量 (每个 Acceptor 线程会创建 numProcessorThreads 个线程)
   private val totalProcessorThreads = numProcessorThreads * endpoints.size
 
   private val maxConnectionsPerIp = config.maxConnectionsPerIp
@@ -68,7 +68,7 @@ class SocketServer(val config: KafkaConfig, val metrics: Metrics, val time: Time
 
   this.logIdent = "[Socket Server on Broker " + config.brokerId + "], "
 
-  // 为每一个 processor 线程创建一个双端队列
+  // 一个 broker 拥有一个 requestChannel 对象, 为每一个 processor 线程创建一个 requestQueue 与一个 responseQueues
   val requestChannel = new RequestChannel(totalProcessorThreads, maxQueuedRequests)
   // processors 是一个数组, 用于对所有的 processor 的索引
   private val processors = new Array[Processor](totalProcessorThreads)
@@ -475,13 +475,13 @@ private[kafka] class Processor(val id: Int,
     false,
     ChannelBuilders.serverChannelBuilder(securityProtocol, channelConfigs, credentialProvider.credentialCache))
 
-  // processor 处理 request 的核心方法.
+  // processor 处理 request 的核心方法。 --> 非常重要 <--
   override def run() {
     startupComplete()
     while (isRunning) {
       try {
         // setup any new connections that have been queued up
-        // 从并发队列里取出客户端 SocketChannel, 添加到自身的 KSelector中, 监听该 channel 的读事件
+        // 从并发队列里取出客户端 SocketChannel, 添加到自身的 KSelector中, 监听该 channel 的 OP_READ 事件
         configureNewConnections()
         // register any new responses for writing
         // 处理当前所有处理完成的 request 相应的response, 这些 response 都是从 RequestChannel 获得 (requestChannel.receiveResponse)

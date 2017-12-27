@@ -242,6 +242,8 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
           kafkaController, zkUtils, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
           clusterId, time)
 
+        // 每个 broker 拥有一个 KafkaRequestHandlerPool
+        // 启动这个 broker 的 KafkaRequestHandlerPool, 用于处理 request
         requestHandlerPool = new KafkaRequestHandlerPool(config.brokerId, socketServer.requestChannel, apis, time,
           config.numIoThreads)
 

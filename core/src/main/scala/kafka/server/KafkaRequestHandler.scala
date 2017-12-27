@@ -28,6 +28,8 @@ import org.apache.kafka.common.utils.{Time, Utils}
 /**
  * A thread that answers kafka requests.
  */
+// KafkaRequestHandler 的职责是从 requestChannel 中的 requestQueue 取出 Request,
+// 处理以后再将 Response 添加到 requestChannel 中的 responseQueue 中
 class KafkaRequestHandler(id: Int,
                           brokerId: Int,
                           val aggregateIdleMeter: Meter,
@@ -40,6 +42,8 @@ class KafkaRequestHandler(id: Int,
   def run() {
     while(true) {
       try {
+        // Request 的成员 processor: Int, connectionId: String, session: Session, buffer: ByteBuffer,
+        // startTimeMs: Long, listenerName: ListenerName, securityProtocol: SecurityProtocol
         var req : RequestChannel.Request = null
         while (req == null) {
           // We use a single meter for aggregate idle percentage for the thread pool.
@@ -59,6 +63,7 @@ class KafkaRequestHandler(id: Int,
         }
         req.requestDequeueTimeMs = time.milliseconds
         trace("Kafka request handler %d on broker %d handling request %s".format(id, brokerId, req))
+        // 核心方法, 它把所有的处理逻辑都交给了 KafkaApis. KafkaApis 是和具体业务相关.
         apis.handle(req)
       } catch {
         case e: Throwable => error("Exception when handling request", e)
@@ -69,6 +74,7 @@ class KafkaRequestHandler(id: Int,
   def shutdown(): Unit = requestChannel.sendRequest(RequestChannel.AllDone)
 }
 
+// 每个 broker 拥有一个 KafkaRequestHandlerPool, 包含有 numThreads 个 KafkaRequestHandler 线程
 class KafkaRequestHandlerPool(val brokerId: Int,
                               val requestChannel: RequestChannel,
                               val apis: KafkaApis,
@@ -79,6 +85,7 @@ class KafkaRequestHandlerPool(val brokerId: Int,
   private val aggregateIdleMeter = newMeter("RequestHandlerAvgIdlePercent", "percent", TimeUnit.NANOSECONDS)
 
   this.logIdent = "[Kafka Request Handler on Broker " + brokerId + "], "
+  // threads 和 runnables 本质上是一样的, 就是线程池
   val threads = new Array[Thread](numThreads)
   val runnables = new Array[KafkaRequestHandler](numThreads)
   for(i <- 0 until numThreads) {
