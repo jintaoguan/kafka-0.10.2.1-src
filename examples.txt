@@ -1,3 +1,9 @@
+===> Compile and Build Kafka source code  <===
+1) check gradle.properties for scala version
+2) ./gradle IDEA
+
+
+===> Run Kafka server <===
 1. Start the server
    1) Start Zookeeper server   
       a) from zookeeper dir
