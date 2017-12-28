@@ -68,7 +68,7 @@ class SocketServer(val config: KafkaConfig, val metrics: Metrics, val time: Time
 
   this.logIdent = "[Socket Server on Broker " + config.brokerId + "], "
 
-  // 一个 broker 拥有一个 requestChannel 对象, 为每一个 processor 线程创建一个 requestQueue 与一个 responseQueues
+  // 一个 broker 拥有一个 RequestChannel 对象, 其中为每一个 processor 线程创建一个 requestQueue 与一个 responseQueues
   val requestChannel = new RequestChannel(totalProcessorThreads, maxQueuedRequests)
   // processors 是一个数组, 用于对所有的 processor 的索引
   private val processors = new Array[Processor](totalProcessorThreads)

@@ -88,6 +88,8 @@ class KafkaRequestHandlerPool(val brokerId: Int,
   // threads 和 runnables 本质上是一样的, 就是线程池
   val threads = new Array[Thread](numThreads)
   val runnables = new Array[KafkaRequestHandler](numThreads)
+
+  // 创建并启动所有的 KafkaRequestHandler 线程
   for(i <- 0 until numThreads) {
     runnables(i) = new KafkaRequestHandler(i, brokerId, aggregateIdleMeter, numThreads, requestChannel, apis, time)
     threads(i) = Utils.daemonThread("kafka-request-handler-" + i, runnables(i))
