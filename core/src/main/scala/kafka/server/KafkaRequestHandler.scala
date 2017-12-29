@@ -42,7 +42,7 @@ class KafkaRequestHandler(id: Int,
   def run() {
     while(true) {
       try {
-        // Request 的成员 processor: Int, connectionId: String, session: Session, buffer: ByteBuffer,
+        // Request 的成员 ==> processor: Int, connectionId: String, session: Session, buffer: ByteBuffer,
         // startTimeMs: Long, listenerName: ListenerName, securityProtocol: SecurityProtocol
         var req : RequestChannel.Request = null
         while (req == null) {
@@ -51,6 +51,7 @@ class KafkaRequestHandler(id: Int,
           // time_window is independent of the number of threads, each recorded idle
           // time should be discounted by # threads.
           val startSelectTime = time.nanoseconds
+          // 从 RequestChannel 的 requestQueue 中取出 request, 并交给 KafkaApis 处理这个 request
           req = requestChannel.receiveRequest(300)
           val idleTime = time.nanoseconds - startSelectTime
           aggregateIdleMeter.mark(idleTime / totalHandlerThreads)

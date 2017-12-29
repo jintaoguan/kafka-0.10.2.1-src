@@ -52,8 +52,13 @@ import scala.util.control.{ControlThrowable, NonFatal}
  */
 // SocketServer 是对一个 broker 的相关 ServerSocket 的抽象, 用于管理这个 broker 的底层 socket 连接
 // Kafka SocketServer 是基于Java NIO来开发的, 采用了Reactor的模式, 其中包含了1个 Acceptor 负责接受客户端请求,
-// N个 Processor 负责读写数据, M个 Handler 来处理业务逻辑。
-// 在 Acceptor 和 Processor, Processor 和 Handler 之间都有队列来缓冲请求.
+// N个 Processor 负责读写数据, M个 Handler 来处理业务逻辑.
+// 每个 Acceptor 对象拥有一个 NSelector 对绑定的 ServerSocketChannel 监听 OP_ACCEPT 消息
+// 每个 Processor 都有一个 KSelector, 用来监听多个客户端 SocketChannel, 因此可以非阻塞地处理多个客户端的读写请求.
+// Acceptor 和 Processor 有 newConnections (每个 Processor 有一个队列) 队列来缓存客户端连接,
+// Processor 与 Handler 之间有 RequestChannel 的 requestQueue (共用一个) 与 responseQueues (每个 Processor 单独有一个队列)
+// 两个队列来缓存 request 与 response.
+// Kafka 的 SocketServer 是一个典型的 SEDA (Staged Event-Driven Architecture) 架构.
 class SocketServer(val config: KafkaConfig, val metrics: Metrics, val time: Time, val credentialProvider: CredentialProvider) extends Logging with KafkaMetricsGroup {
 
   private val endpoints = config.listeners.map(l => l.listenerName -> l).toMap
@@ -263,6 +268,7 @@ private[kafka] abstract class AbstractServerThread(connectionQuotas: ConnectionQ
  */
 // Acceptor 线程用于 accept 新的连接, 每个 endpoint 都会有一个自己的 Acceptor
 // Acceptor 作两件事: 1)创建一堆 processor 线程;  2) 接受新连接, 将新的socket指派给某个 processor 线程
+// 每个 Acceptor 对象拥有一个 NSelector 对绑定的 ServerSocketChannel 监听 OP_ACCEPT 消息
 private[kafka] class Acceptor(val endPoint: EndPoint,
                               val sendBufferSize: Int,
                               val recvBufferSize: Int,
@@ -379,7 +385,7 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
   // 1) 首先通过 SelectionKey 来拿到对应的 ServerSocketChannel
   // 2）调用 ServerSocketChannel 的 accept 方法来建立和客户端的连接
   // 3) 然后拿到对应的 SocketChannel 并交给了 processor 处理
-  // 4) 然后Acceptor的任务就完成了, 开始去处理下一个客户端的连接请求.
+  // 4) 到这里 Acceptor 的任务就完成了, 开始去处理下一个客户端的连接请求.
   def accept(key: SelectionKey, processor: Processor) {
     // 获取 ServerSocketChannel 对象
     val serverSocketChannel = key.channel().asInstanceOf[ServerSocketChannel]
@@ -424,7 +430,7 @@ private[kafka] class Acceptor(val endPoint: EndPoint,
  */
 // 从单个连接进来的 request 都由 processor 线程处理.
 // 它的主要职责是负责从客户端读取数据和将响应返回给客户端, 它本身不处理具体的业务逻辑, 也就是说它并不认识它从客户端读取回来的数据.
-// 每个 Processor 都有一个 KSelector, 用来监听多个客户端, 因此可以非阻塞地处理多个客户端的读写请求.
+// 每个 Processor 都有一个 KSelector, 用来监听多个客户端 SocketChannel, 因此可以非阻塞地处理多个客户端的读写请求.
 private[kafka] class Processor(val id: Int,
                                time: Time,
                                maxRequestSize: Int,
@@ -568,10 +574,13 @@ private[kafka] class Processor(val id: Int,
           val channel = if (openChannel != null) openChannel else selector.closingChannel(receive.source)
           RequestChannel.Session(new KafkaPrincipal(KafkaPrincipal.USER_TYPE, channel.principal.getName), channel.socketAddress)
         }
+        // 这一步很重要, 构造 Kafka 内部网络层通用的 RequestChannel.Request 对象
         val req = RequestChannel.Request(processor = id, connectionId = receive.source, session = session,
           buffer = receive.payload, startTimeMs = time.milliseconds, listenerName = listenerName,
           securityProtocol = securityProtocol)
+        // Processor 将 request 交给 requestChannel 的 requestQueue, 之后由 KafkaRequestHandler 与 KafkaApis 处理
         requestChannel.sendRequest(req)
+        // todo 为什么这里使用 mute()?
         selector.mute(receive.source)
       } catch {
         case e @ (_: InvalidRequestException | _: SchemaException) =>

@@ -19,6 +19,7 @@ package org.apache.kafka.common.protocol;
 /**
  * Identifiers for all the Kafka APIs
  */
+// Kafka 网络层核心 API 种类
 public enum ApiKeys {
     PRODUCE(0, "Produce"),
     FETCH(1, "Fetch"),

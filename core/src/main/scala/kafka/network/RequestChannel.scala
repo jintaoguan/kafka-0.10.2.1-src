@@ -53,6 +53,7 @@ object RequestChannel extends Logging {
     val sanitizedUser = QuotaId.sanitize(principal.getName)
   }
 
+  // requestQueue 中存放的 Request 的结构
   case class Request(processor: Int, connectionId: String, session: Session, private var buffer: ByteBuffer,
                      startTimeMs: Long, listenerName: ListenerName, securityProtocol: SecurityProtocol) {
     // These need to be volatile because the readers are in the network thread and the writers are in the request

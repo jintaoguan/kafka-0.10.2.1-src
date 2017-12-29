@@ -72,10 +72,14 @@ class KafkaApis(val requestChannel: RequestChannel,
   /**
    * Top-level method that handles all requests and multiplexes to the right api
    */
+  // 在 KafkaRequestHandler 的 run() 方法中,
+  // KafkaRequestHandler 会从 RequestChannel 的 requestQueue 中取出 request, 并调用 KafkaApis.handle(request)
   def handle(request: RequestChannel.Request) {
     try {
       trace("Handling request:%s from connection %s;securityProtocol:%s,principal:%s".
         format(request.requestDesc(true), request.connectionId, request.securityProtocol, request.session.principal))
+      // 请求交互二进制数据组成为: 请求类型 + 请求数据
+      // requestId 是 request 中的 buffer 的前两个字节
       ApiKeys.forId(request.requestId) match {
         case ApiKeys.PRODUCE => handleProducerRequest(request)
         case ApiKeys.FETCH => handleFetchRequest(request)
@@ -345,7 +349,10 @@ class KafkaApis(val requestChannel: RequestChannel,
   /**
    * Handle a produce request
    */
+  // 处理 produce 请求的具体业务逻辑
   def handleProducerRequest(request: RequestChannel.Request) {
+    // 将 Request 请求转换为 ProducerRequest
+    // ProducerRequest 含有生产者的 Partition -> authorizedRequestInfo(消息集), 会被写入到日志中.
     val produceRequest = request.body.asInstanceOf[ProduceRequest]
     val numBytesAppended = request.header.sizeOf + produceRequest.sizeOf
 
@@ -359,6 +366,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
 
     // the callback for sending a produce response
+    // 发送 Producer 的 Response 的回调函数
     def sendResponseCallback(responseStatus: Map[TopicPartition, PartitionResponse]) {
 
       val mergedResponseStatus = responseStatus ++
