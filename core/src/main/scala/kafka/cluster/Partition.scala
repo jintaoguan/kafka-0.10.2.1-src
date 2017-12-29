@@ -47,15 +47,19 @@ class Partition(val topic: String,
                 replicaManager: ReplicaManager) extends Logging with KafkaMetricsGroup {
   val topicPartition = new TopicPartition(topic, partitionId)
 
+  // KafkaServer 当前节点的 BrokerId
   private val localBrokerId = replicaManager.config.brokerId
   private val logManager = replicaManager.logManager
   private val zkUtils = replicaManager.zkUtils
+  // 核心变量 assignedReplicaMap 是一个 Map[BrokerId, Replica]
+  // Kafka 不允许同个 broker 上拥有同个 partition 的多个 replica
   private val assignedReplicaMap = new Pool[Int, Replica]
   // The read lock is only required when multiple reads are executed and needs to be in a consistent manner
   private val leaderIsrUpdateLock = new ReentrantReadWriteLock
   private var zkVersion: Int = LeaderAndIsr.initialZKVersion
   @volatile private var leaderEpoch: Int = LeaderAndIsr.initialLeaderEpoch - 1
   @volatile var leaderReplicaIdOpt: Option[Int] = None
+  // 核心变量 ISR 集合
   @volatile var inSyncReplicas: Set[Replica] = Set.empty[Replica]
 
   /* Epoch of the controller that last changed the leader. This needs to be initialized correctly upon broker startup.
@@ -119,6 +123,7 @@ class Partition(val topic: String,
 
   def getReplica(replicaId: Int = localBrokerId): Option[Replica] = Option(assignedReplicaMap.get(replicaId))
 
+  // todo 1）为什么这样比较? 2) replicaId 和 brokerId 关系?
   def leaderReplicaIfLocal: Option[Replica] =
     leaderReplicaIdOpt.filter(_ == localBrokerId).flatMap(getReplica)
 
@@ -436,6 +441,9 @@ class Partition(val topic: String,
 
   def appendRecordsToLeader(records: MemoryRecords, requiredAcks: Int = 0) = {
     val (info, leaderHWIncremented) = inReadLock(leaderIsrUpdateLock) {
+      // leaderReplicaIfLocal() 用于判断 leaderReplica 是否是本地的,
+      // 是比较 leaderReplicaIdOpt(这个变量是volatile) 和 localBrokerId 是否相同
+      // localBrokerId 在 Kafka 节点启动时就是确定的, 即同一个 KafkaServer 节点的所有 Partition 的 BrokerId 都是相等的
       leaderReplicaIfLocal match {
         case Some(leaderReplica) =>
           val log = leaderReplica.log.get
@@ -443,11 +451,13 @@ class Partition(val topic: String,
           val inSyncSize = inSyncReplicas.size
 
           // Avoid writing to leader if there are not enough insync replicas to make it safe
+          // 如果没有足够的 ISR 就拒绝写入 log 并抛出异常
           if (inSyncSize < minIsr && requiredAcks == -1) {
             throw new NotEnoughReplicasException("Number of insync replicas for partition %s is [%d], below required minimum [%d]"
               .format(topicPartition, inSyncSize, minIsr))
           }
 
+          // 将消息集合 MemoryRecords 写入这个 partition 的 log, 并返回一个 LogAppendInfo 对象
           val info = log.append(records, assignOffsets = true)
           // probably unblock some follower fetch requests since log end offset has been updated
           replicaManager.tryCompleteDelayedFetch(TopicPartitionOperationKey(this.topic, this.partitionId))
