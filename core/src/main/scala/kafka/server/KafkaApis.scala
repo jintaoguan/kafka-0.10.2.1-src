@@ -386,6 +386,10 @@ class KafkaApis(val requestChannel: RequestChannel,
         }
       }
 
+      // ack 值表示的意义:
+      // 0,  producer 不需要等待 ack, server 收到消息后直接反馈.
+      // 1,  leader 成功写入后反馈给 producer.
+      // -1, client 中配置为 "all", 在 ISR 中所有 replicas 都写入消息后才进行反馈.
       def produceResponseCallback(delayTimeMs: Int) {
         if (produceRequest.acks == 0) {
           // no operation needed if producer request.required.acks = 0; however, if there is any error in handling
@@ -430,9 +434,11 @@ class KafkaApis(val requestChannel: RequestChannel,
     if (authorizedRequestInfo.isEmpty)
       sendResponseCallback(Map.empty)
     else {
+      // internalTopicsAllowed 表示的是当前 request 的 clientId 是否是 AdminClientId
       val internalTopicsAllowed = request.header.clientId == AdminUtils.AdminClientId
 
       // call the replica manager to append messages to the replicas
+      // 将消息写入磁盘, 并调用回调函数, 这是 handleProducerRequest() 的核心步骤
       replicaManager.appendRecords(
         produceRequest.timeout.toLong,
         produceRequest.acks,
@@ -442,6 +448,7 @@ class KafkaApis(val requestChannel: RequestChannel,
 
       // if the request is put into the purgatory, it will have a held reference and hence cannot be garbage collected;
       // hence we clear its data here inorder to let GC re-claim its memory since it is already appended to log
+      // 清理数据使得 GC 可以回收空间
       produceRequest.clearPartitionRecords()
     }
   }

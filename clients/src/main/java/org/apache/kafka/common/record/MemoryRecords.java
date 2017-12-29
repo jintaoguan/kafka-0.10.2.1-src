@@ -29,7 +29,7 @@ import java.util.List;
  */
 /**
  * MemoryRecords 与 RecordBatch 对应, 每个 RecordBatch 拥有一个 MemoryRecordsBuilder.
- * MemoryRecords 表示的是多个消息的集合, 其中封装了 Java NIO ByteBuffer 用来保存消息数据.
+ * MemoryRecords 表示的是相同的 TopicPartition 的序列化之后的消息集合, 其中封装了 Java NIO ByteBuffer 用来保存消息数据.
  */
 public class MemoryRecords extends AbstractRecords {
 

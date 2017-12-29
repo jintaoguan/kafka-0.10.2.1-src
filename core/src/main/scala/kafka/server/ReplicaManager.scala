@@ -301,14 +301,27 @@ class ReplicaManager(val config: KafkaConfig,
    * Append messages to leader replicas of the partition, and wait for them to be replicated to other replicas;
    * the callback function will be triggered either when timeout or the required acks are satisfied
    */
+  // 将消息集合 MemoryRecords 写入这个 partition 的 leader replica 的 log 中
+  // 将消息写到 ISR 的其他 replica 中
+  // 超时或者 ack 规则满足时进行反馈操作, 即执行回调函数  responseCallback: Map[TopicPartition, PartitionResponse] => Unit
+  // 这里将 responseCallback 方法作为参数传递给 appendRecords() 方法
+  // 注意在 Scala 语言中函数作数作为参数的传递方式, funcName: paramType ... => retType ...
+  // 参数列表:
+  // timeout: Long, 这个方法的超时最大时间
+  // requiredAcks: Short, 反馈给 server 的模式 [0,1,-1]
+  // internalTopicsAllowed: Boolean, 表示的是当前 request 的 clientId 是否是 AdminClientId
+  // entriesPerPartition: Map[TopicPartition, MemoryRecords], 具体发送的数据
+  // responseCallback: Map[TopicPartition, PartitionResponse] => Unit, 回调函数
   def appendRecords(timeout: Long,
                     requiredAcks: Short,
                     internalTopicsAllowed: Boolean,
                     entriesPerPartition: Map[TopicPartition, MemoryRecords],
                     responseCallback: Map[TopicPartition, PartitionResponse] => Unit) {
 
+    // 判断 ack 是有效的 [0, 1, -1]
     if (isValidRequiredAcks(requiredAcks)) {
       val sTime = time.milliseconds
+      // 写入本地 replica 的 log
       val localProduceResults = appendToLocalLog(internalTopicsAllowed, entriesPerPartition, requiredAcks)
       debug("Produce to local log in %d ms".format(time.milliseconds - sTime))
 
@@ -319,6 +332,7 @@ class ReplicaManager(val config: KafkaConfig,
                   new PartitionResponse(result.error, result.info.firstOffset, result.info.logAppendTime)) // response status
       }
 
+      // acks == -1 时需要创建 delayedProduce 实现消息的备份
       if (delayedRequestRequired(requiredAcks, entriesPerPartition, localProduceResults)) {
         // create delayed produce operation
         val produceMetadata = ProduceMetadata(requiredAcks, produceStatus)
@@ -340,6 +354,7 @@ class ReplicaManager(val config: KafkaConfig,
     } else {
       // If required.acks is outside accepted range, something is wrong with the client
       // Just return an error and don't handle the request at all
+      // ack 不在合法范围时 [0,1,-1], 不用处理这个请求, 直接返回
       val responseStatus = entriesPerPartition.map { case (topicPartition, _) =>
         topicPartition -> new PartitionResponse(Errors.INVALID_REQUIRED_ACKS,
           LogAppendInfo.UnknownLogAppendInfo.firstOffset, Record.NO_TIMESTAMP)
@@ -368,6 +383,7 @@ class ReplicaManager(val config: KafkaConfig,
   /**
    * Append the messages to the local replica logs
    */
+  // 核心方法, 写入本地 replica 的 log
   private def appendToLocalLog(internalTopicsAllowed: Boolean,
                                entriesPerPartition: Map[TopicPartition, MemoryRecords],
                                requiredAcks: Short): Map[TopicPartition, LogAppendResult] = {
@@ -377,6 +393,7 @@ class ReplicaManager(val config: KafkaConfig,
       BrokerTopicStats.getBrokerAllTopicsStats().totalProduceRequestRate.mark()
 
       // reject appending to internal topics if it is not allowed
+      // 如果这个 topic 是内部 topic (即 "__consumer_offsets") 并且 client 不是 AdminClient, 就拒绝操作并返回
       if (Topic.isInternal(topicPartition.topic) && !internalTopicsAllowed) {
         (topicPartition, LogAppendResult(
           LogAppendInfo.UnknownLogAppendInfo,
@@ -385,8 +402,10 @@ class ReplicaManager(val config: KafkaConfig,
         try {
           val partitionOpt = getPartition(topicPartition)
           val info = partitionOpt match {
+            // 这个 TopicPartition 存在, 则向这个 TopicPartition 的 leader replica 写入数据
             case Some(partition) =>
               partition.appendRecordsToLeader(records, requiredAcks)
+            // 这个 TopicPartition 不存在
             case None => throw new UnknownTopicOrPartitionException("Partition %s doesn't exist on %d"
               .format(topicPartition, localBrokerId))
           }

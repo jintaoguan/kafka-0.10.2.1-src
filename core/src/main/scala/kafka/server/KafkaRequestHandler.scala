@@ -51,7 +51,7 @@ class KafkaRequestHandler(id: Int,
           // time_window is independent of the number of threads, each recorded idle
           // time should be discounted by # threads.
           val startSelectTime = time.nanoseconds
-          // 从 RequestChannel 的 requestQueue 中取出 request, 并交给 KafkaApis 处理这个 request
+          // 从 RequestChannel 的 requestQueue 中取出 request
           req = requestChannel.receiveRequest(300)
           val idleTime = time.nanoseconds - startSelectTime
           aggregateIdleMeter.mark(idleTime / totalHandlerThreads)

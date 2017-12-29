@@ -23,6 +23,7 @@ import scala.collection.immutable
 
 object Topic {
 
+  // 内部 topic 的名字
   val GroupMetadataTopicName = "__consumer_offsets"
   val InternalTopics = immutable.Set(GroupMetadataTopicName)
 
