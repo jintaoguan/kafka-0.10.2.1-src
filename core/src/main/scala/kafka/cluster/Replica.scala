@@ -25,6 +25,9 @@ import java.util.concurrent.atomic.AtomicLong
 
 import org.apache.kafka.common.utils.Time
 
+// 一个 Replica 有两个重要的元数据: HighWatermark 和 LogEndOffset
+// HighWatermark 是用来确保消费者能获取到的消息的最高水位, 超过这个水位的消息是不会被客户端看到的
+// LogEndOffset 是所有的 Replica 都会有的: Leader在消息追加后会更新, follower 在从 Leader 抓取消息也也会更新
 class Replica(val brokerId: Int,
               val partition: Partition,
               time: Time = Time.SYSTEM,
@@ -50,6 +53,7 @@ class Replica(val brokerId: Int,
 
   val topicPartition = partition.topicPartition
 
+  // 创建 Replica 时指定 Log 时, 则表示是本地的Replication
   def isLocal: Boolean = log.isDefined
 
   def lastCaughtUpTimeMs = _lastCaughtUpTimeMs

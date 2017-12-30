@@ -349,6 +349,11 @@ class Log(@volatile var dir: File,
    * @throws KafkaStorageException If the append fails due to an I/O error.
    * @return Information about the appended messages including the first and last offset.
    */
+  // 1) LogOffsetMetadata(Log的Offset元数据) 的当前值作为本次 LogAppendInfo 的 firstOffset
+  // 2) 给 MessageSet 分配 Offset: 每条消息的 offset 都是单调递增的
+  // 3) LogAppendInfo 的 lastOffset 是这一批消息的最后一条消息的 offset
+  // 4) 添加消息到当前或者新创建的 Segment
+  // 5) 更新 Log End Offset 为当前最后一条消息的 offset 的下一条
   def append(records: MemoryRecords, assignOffsets: Boolean = true): LogAppendInfo = {
     val appendInfo = analyzeAndValidateRecords(records)
 
