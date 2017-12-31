@@ -178,13 +178,16 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
       val canStartup = isStartingUp.compareAndSet(false, true)
       if (canStartup) {
+        // 把 broker 的当前状态先置为 Starting
         brokerState.newState(Starting)
 
         /* start scheduler */
-        // KafkaScheduler 功能?
+        // 启动 KafkaScheduler, 其内部维护了一个 ScheduledThreadPoolExecutor, 用于执行broker内置的一些周期性运行的 job
+        // 比如启动自动提交时, broker 会定期维护客户端的消费 topic-partition 的 offset 信息
         kafkaScheduler.startup()
 
         /* setup zookeeper */
+        // 初始化 ZooKeeper 访问工具, 建立必要的数据路径
         zkUtils = initZk()
 
         /* Get or create cluster_id */
@@ -206,7 +209,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         notifyClusterListeners(kafkaMetricsReporters ++ reporters.asScala)
 
         /* start log manager */
-        // 核心类
+        // 启动 LogManager, 也就是日志数据管理子系统, 负责日志数据的创建, 截断, 滚动和清理等
         logManager = createLogManager(zkUtils.zkClient, brokerState)
         logManager.startup()
 
@@ -218,13 +221,14 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         socketServer.startup()
 
         /* start replica manager */
-        // 核心类
+        // 启动 ReplicaManager, 也即副本管理器, 用于管理每个 TopicPartition 的副本状态, 包括 leader, ISR 等
         replicaManager = new ReplicaManager(config, metrics, time, zkUtils, kafkaScheduler, logManager,
           isShuttingDown, quotaManagers.follower)
         replicaManager.startup()
 
         /* start kafka controller */
-        // 核心类
+        // 启动 KafkaController, 可以理解为 Kafka 集群的中央控制器, 负责全局的协调
+        // 比如选取 leader, reassignment 等，其自身也支持动态选举高可用
         kafkaController = new KafkaController(config, zkUtils, brokerState, time, metrics, threadNamePrefix)
         kafkaController.startup()
 
@@ -232,6 +236,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
 
         /* start group coordinator */
         // Hardcode Time.SYSTEM for now as some Streams tests fail otherwise, it would be good to fix the underlying issue
+        // 启动 GroupCoordinator, 主要用于 broker 组管理和 offset 管理
         groupCoordinator = GroupCoordinator(config, zkUtils, replicaManager, Time.SYSTEM)
         groupCoordinator.startup()
 
@@ -281,6 +286,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         /* register broker metrics */
         registerStats()
 
+        // 将当前 broker 的状态置为 RunningAsBroker, 这时 broker 已经可以对外提供服务了
         brokerState.newState(RunningAsBroker)
         shutdownLatch = new CountDownLatch(1)
         startupComplete.set(true)

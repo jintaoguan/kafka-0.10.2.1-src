@@ -152,6 +152,9 @@ object KafkaController extends Logging {
   }
 }
 
+
+// 什么是 Controller:
+// 从 Kafka 集群中选取一个 broker 作为 controller, 负责管理topic分区和副本的状态的变化, 以及执行重分配分区之类的管理任务
 class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState: BrokerState, time: Time, metrics: Metrics, threadNamePrefix: Option[String] = None) extends Logging with KafkaMetricsGroup {
   this.logIdent = "[Controller " + config.brokerId + "]: "
   private var isRunning = true
