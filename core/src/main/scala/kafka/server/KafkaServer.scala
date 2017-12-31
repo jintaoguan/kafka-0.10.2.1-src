@@ -181,6 +181,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         brokerState.newState(Starting)
 
         /* start scheduler */
+        // KafkaScheduler 功能?
         kafkaScheduler.startup()
 
         /* setup zookeeper */
@@ -205,21 +206,25 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
         notifyClusterListeners(kafkaMetricsReporters ++ reporters.asScala)
 
         /* start log manager */
+        // 核心类
         logManager = createLogManager(zkUtils.zkClient, brokerState)
         logManager.startup()
 
         metadataCache = new MetadataCache(config.brokerId)
         credentialProvider = new CredentialProvider(config.saslEnabledMechanisms)
 
+        // 启动 SocketServer, Kafka 网络通信核心类
         socketServer = new SocketServer(config, metrics, time, credentialProvider)
         socketServer.startup()
 
         /* start replica manager */
+        // 核心类
         replicaManager = new ReplicaManager(config, metrics, time, zkUtils, kafkaScheduler, logManager,
           isShuttingDown, quotaManagers.follower)
         replicaManager.startup()
 
         /* start kafka controller */
+        // 核心类
         kafkaController = new KafkaController(config, zkUtils, brokerState, time, metrics, threadNamePrefix)
         kafkaController.startup()
 
@@ -242,7 +247,7 @@ class KafkaServer(val config: KafkaConfig, time: Time = Time.SYSTEM, threadNameP
           kafkaController, zkUtils, config.brokerId, config, metadataCache, metrics, authorizer, quotaManagers,
           clusterId, time)
 
-        // 每个 broker 拥有一个 KafkaRequestHandlerPool
+        // 核心类, 每个 broker 拥有一个 KafkaRequestHandlerPool
         // 启动这个 broker 的 KafkaRequestHandlerPool, 并同时启动其中所有的 KafkaRequestHandler 线程, 用于处理 request
         requestHandlerPool = new KafkaRequestHandlerPool(config.brokerId, socketServer.requestChannel, apis, time,
           config.numIoThreads)
