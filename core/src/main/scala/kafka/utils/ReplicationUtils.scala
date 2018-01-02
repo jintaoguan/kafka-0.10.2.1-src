@@ -70,6 +70,7 @@ object ReplicationUtils extends Logging {
     (false,-1)
   }
 
+  // 从 zookeeper 获取指定的 TopicPartition 的 leader 和 ISR 信息, 返回一个 Option[LeaderIsrAndControllerEpoch]
   def getLeaderIsrAndEpochForPartition(zkUtils: ZkUtils, topic: String, partition: Int):Option[LeaderIsrAndControllerEpoch] = {
     val leaderAndIsrPath = getTopicPartitionLeaderAndIsrPath(topic, partition)
     val (leaderAndIsrOpt, stat) = zkUtils.readDataMaybeNull(leaderAndIsrPath)

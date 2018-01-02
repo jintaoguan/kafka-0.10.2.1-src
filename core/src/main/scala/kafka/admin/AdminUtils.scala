@@ -402,7 +402,7 @@ object AdminUtils extends Logging with AdminUtilities {
   def topicExists(zkUtils: ZkUtils, topic: String): Boolean =
     zkUtils.pathExists(getTopicPath(topic))
 
-  // getBrokerMetadatas() 获取 topic 的 metadata 信息
+  // getBrokerMetadatas() 获取 broker 的 metadata 信息
   // 返回一个 Seq[BrokerMetadata] 属性: BrokerMetadata(id: Int, rack: Option[String])
   def getBrokerMetadatas(zkUtils: ZkUtils, rackAwareMode: RackAwareMode = RackAwareMode.Enforced,
                         brokerList: Option[Seq[Int]] = None): Seq[BrokerMetadata] = {

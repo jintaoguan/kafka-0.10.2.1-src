@@ -683,6 +683,7 @@ class ZkUtils(val zkClient: ZkClient,
     cluster
   }
 
+  // 从 zookeeper 获取指定的 partitions 的 leader 和 ISR, 并返回一个 Map[TopicAndPartition, LeaderIsrAndControllerEpoch]
   def getPartitionLeaderAndIsrForTopics(zkClient: ZkClient, topicAndPartitions: Set[TopicAndPartition])
   : mutable.Map[TopicAndPartition, LeaderIsrAndControllerEpoch] = {
     val ret = new mutable.HashMap[TopicAndPartition, LeaderIsrAndControllerEpoch]
@@ -695,6 +696,7 @@ class ZkUtils(val zkClient: ZkClient,
     ret
   }
 
+  // 从 zookeeper 获取指定 topics 的 AR 分布, 返回一个 Map[TopicAndPartition, Seq[Int]]
   def getReplicaAssignmentForTopics(topics: Seq[String]): mutable.Map[TopicAndPartition, Seq[Int]] = {
     val ret = new mutable.HashMap[TopicAndPartition, Seq[Int]]
     topics.foreach { topic =>

@@ -34,6 +34,7 @@ import org.apache.kafka.common.utils.Time
 // ZookeeperLeaderElector 类基于 zookeeper 临时节点的抢占式选主策略, 多个备选者都去 zookeeper 上注册同一个临时节点
 // 但 zookeeper 保证同时只有一个备选者注册成功, 此备选者即成为leader.
 // 然后大家都 watch 这个临时节点, 一旦此临时节点消失, watcher被触发, 各备选者又一次开始抢占选主
+// 简单来说就是哪台 broker 先启动它就会成为 leader, 这时候如果其他的 broker 启动完成后会读取 /controller 节点的数据更新其各自的内存数据
 class ZookeeperLeaderElector(controllerContext: ControllerContext,
                              electionPath: String,
                              onBecomingLeader: () => Unit,     // 被选举为 leader 的回调函数
