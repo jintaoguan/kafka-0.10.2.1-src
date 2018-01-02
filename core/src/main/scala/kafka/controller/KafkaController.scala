@@ -153,8 +153,8 @@ object KafkaController extends Logging {
 }
 
 
-// 什么是 Controller:
-// 从 Kafka 集群中选取一个 broker 作为 controller, 负责管理topic分区和副本的状态的变化, 以及执行重分配分区之类的管理任务
+// 什么是 Controller: 从 Kafka 集群中选取一个 broker 作为 controller, 负责:
+// Topic 的创建, Partition leader 的选取, Partition的增加, PartitionReassigned, PreferredReplicaElection, Topic 的删除等
 class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState: BrokerState, time: Time, metrics: Metrics, threadNamePrefix: Option[String] = None) extends Logging with KafkaMetricsGroup {
   this.logIdent = "[Controller " + config.brokerId + "]: "
   private var isRunning = true
@@ -697,11 +697,13 @@ class KafkaController(val config: KafkaConfig, zkUtils: ZkUtils, val brokerState
    * is the controller. It merely registers the session expiration listener and starts the controller leader
    * elector
    */
+  // 在 Kafka 集群启动时每个 broker 都会拥有一个 KafkaController 实例, 但这时还未选出leader
   def startup() = {
     inLock(controllerContext.controllerLock) {
       info("Controller starting up")
       registerSessionExpirationListener()
       isRunning = true
+      // 在调用 controllerElector.startup() 后集群就开始通过 zookeeper 选举 leader 了
       controllerElector.startup
       info("Controller startup complete")
     }
