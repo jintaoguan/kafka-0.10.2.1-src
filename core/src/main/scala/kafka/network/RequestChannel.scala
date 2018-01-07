@@ -255,7 +255,7 @@ class RequestChannel(val numProcessors: Int, val queueSize: Int) extends KafkaMe
     requestQueue.take()
 
   /** Get a response for the given processor if there is one */
-  // Handler 从指定 processor 的 requestQueue 中取出 Request.
+  // Handler 从指定 processor 的 responseQueues 中取出 Response.
   def receiveResponse(processor: Int): RequestChannel.Response = {
     val response = responseQueues(processor).poll()
     if (response != null)

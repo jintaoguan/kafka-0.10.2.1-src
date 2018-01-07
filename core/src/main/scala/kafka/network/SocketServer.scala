@@ -490,7 +490,7 @@ private[kafka] class Processor(val id: Int,
         // 从并发队列里取出客户端 SocketChannel, 添加到自身的 KSelector中, 监听该 channel 的 OP_READ 事件
         configureNewConnections()
         // register any new responses for writing
-        // 处理当前所有处理完成的 request 相应的response, 这些 response 都是从 RequestChannel 获得 (requestChannel.receiveResponse)
+        // 处理当前所有处理完成的 request 相应的 response, 这些 response 都是从 RequestChannel 获得 (requestChannel.receiveResponse)
         // 根据 request 的类型来决定从当前连接的 nio selector 中暂时删除读事件监听/添加写事件/关闭当前连接
         processNewResponses()
         poll()

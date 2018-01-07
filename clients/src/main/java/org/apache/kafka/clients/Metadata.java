@@ -45,7 +45,7 @@ import java.util.Set;
  */
 // 一个 KafkaProducer 对象只拥有一个 Metadata 对象, 存储了这个 KafkaProducer 所掌握的 topic 与 cluster 信息.
 // Metadata 类被 client 线程和后台 sender 所共享, 所以 Metadata 所有的方法都由 synchronized 关键字保护线程安全.
-// Metadata 类只保存了所有 topic 的部分数据,
+// Metadata 类只保存了部分 topic 的数据,
 // 当我们请求一个它上面没有的 topic 的 metadata 时,它会通过发送 metadata update 来更新 metadata,
 // 如果 topic metadata 过期策略是允许的, 那么任何 topic 过期的话都会被从集合中移除,
 // 但是 consumer 是不允许 topic 过期的因为它明确地知道它需要管理哪些 topic.

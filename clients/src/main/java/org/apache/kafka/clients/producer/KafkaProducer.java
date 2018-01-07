@@ -516,7 +516,8 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             // 把序列化之后的key与value放入RecordAccumulator的buffer中
             RecordAccumulator.RecordAppendResult result = accumulator.append(tp, timestamp, serializedKey, serializedValue, interceptCallback, remainingWaitMs);
 
-            // 如果有batch存满了，或者原batch剩余空间不足而创建了新的batch，都要唤醒sender线程并发送已满的batch中的数据
+            // 如果有 batch 存满了，或者原 batch 剩余空间不足而创建了新的 batch，
+            // 都要唤醒 sender 线程并发送已满的 batch 中的数据
             if (result.batchIsFull || result.newBatchCreated) {
                 log.trace("Waking up the sender since topic {} partition {} is either full or getting a new batch", record.topic(), partition);
                 this.sender.wakeup();
