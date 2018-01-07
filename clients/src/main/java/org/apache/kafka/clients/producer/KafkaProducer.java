@@ -575,7 +575,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         // 在 metadata 中添加 topic 后, 如果 metadata 中没有这个 topic 的 meta,
         // 那么 metadata 的更新标志设置为了 true.
         metadata.add(topic);
-        // 获取当前的 Cluster 信息
+        // 获取当前的 Cluster 信息, 仅仅是本地缓存的 Cluster 信息
         Cluster cluster = metadata.fetch();
         // 该 Topic 的所有 partition 的数量, 或者 null (即当前没有该 Topic 的 metadata).
         Integer partitionsCount = cluster.partitionCountForTopic(topic);

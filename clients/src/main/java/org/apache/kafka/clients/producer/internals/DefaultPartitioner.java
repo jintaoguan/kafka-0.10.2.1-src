@@ -62,7 +62,9 @@ public class DefaultPartitioner implements Partitioner {
         List<PartitionInfo> partitions = cluster.partitionsForTopic(topic);
         int numPartitions = partitions.size();
         if (keyBytes == null) {
+            // record 没有 key 则采用该 topic 的 record 计数器求模
             int nextValue = nextValue(topic);
+            // 根据 cluster metadata 获得该 topic 的所有 available partition
             List<PartitionInfo> availablePartitions = cluster.availablePartitionsForTopic(topic);
             if (availablePartitions.size() > 0) {
                 int part = Utils.toPositive(nextValue) % availablePartitions.size();
@@ -73,10 +75,12 @@ public class DefaultPartitioner implements Partitioner {
             }
         } else {
             // hash the keyBytes to choose a partition
+            // record 有 key 的话就用序列化的 key 的 murmur2 哈希值求模
             return Utils.toPositive(Utils.murmur2(keyBytes)) % numPartitions;
         }
     }
 
+    // topic 的 record 计数器，初始值为一个随机数
     private int nextValue(String topic) {
         AtomicInteger counter = topicCounterMap.get(topic);
         if (null == counter) {
