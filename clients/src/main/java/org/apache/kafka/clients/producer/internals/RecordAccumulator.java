@@ -186,8 +186,8 @@ public final class RecordAccumulator {
         try {
             // check if we have an in-progress batch
             // 根据record的TopicPartition(该对象只保存了topic与partition), 确定该record应该存入的batch队列
-            // 1. 如果该TopicPartition对应的队列为空，则为这个TopicPartition新建一个batch队列,
-            // 2. 如果该TopicPartition已存在一个batch队列，则把这个record追加到这个batch队列的最后一个batch当中.
+            // 1. 如果该 TopicPartition 对应的队列为空，则为这个 TopicPartition 新建一个 batch 队列并返回该队列
+            // 2. 如果该 TopicPartition 已存在一个 batch 队列，则返回队列的最后一个 batch 队列
             Deque<RecordBatch> dq = getOrCreateDeque(tp);
             // 这里的 batches 是一个 ConcurrentMap<TopicPartition, Deque<RecordBatch>>, 通过putIfAbsent()可以保证其线程安全.
             // Deque<RecordBatch> 不是线程安全的对象, 所以追加record的时候需要使用synchronize关键字保证其线程安全.
