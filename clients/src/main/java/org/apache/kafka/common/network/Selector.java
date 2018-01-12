@@ -75,6 +75,7 @@ import org.slf4j.LoggerFactory;
  *
  * This class is not thread safe!
  */
+// KSelector 封装了 NIO Selector 并管理维护了 SocketChannel
 public class Selector implements Selectable {
 
     public static final long NO_IDLE_TIMEOUT_MS = -1;
@@ -90,6 +91,7 @@ public class Selector implements Selectable {
     // 记录已经完全接收到的请求
     private final List<NetworkReceive> completedReceives;
     private final Map<KafkaChannel, Deque<NetworkReceive>> stagedReceives;
+    // 用来记录调用 socketChannel.connect() 后立刻建立连接的 SelectionKey, 因为它们没有触发 nioSelector 的 OP_CONNECT 事件
     private final Set<SelectionKey> immediatelyConnectedKeys;
     private final Map<String, KafkaChannel> closingChannels;
     private final List<String> disconnected;
@@ -128,6 +130,7 @@ public class Selector implements Selectable {
                     boolean metricsPerConnection,
                     ChannelBuilder channelBuilder) {
         try {
+            // 打开原生 Java NIO Selector
             this.nioSelector = java.nio.channels.Selector.open();
         } catch (IOException e) {
             throw new KafkaException(e);
@@ -169,18 +172,18 @@ public class Selector implements Selectable {
      * @throws IOException if DNS resolution fails on the hostname or if the broker is down
      */
     /**
-     * 核心方法 KSelector.connect() 用来创建 KafkaChannel, 并添加到 channel 集合中保存.
-     * 因为是非阻塞模式，此时调用 connect() 可能在连接建立之前就返回了.
-     * 为了确定连接是否建立，需要再调用 finishConnect() 确认完全连接上了.
+     * 客户端使用 KSelector 管理到多个 node 的连接并监听相应的 OP_CONNECT 方法
+     * 创建 KafkaChannel, 并添加到 KSelector 的 channels 集合中保存
+     *
      */
     @Override
     public void connect(String id, InetSocketAddress address, int sendBufferSize, int receiveBufferSize) throws IOException {
         if (this.channels.containsKey(id))
             throw new IllegalStateException("There is already a connection for id " + id);
 
-        // 创建 SocketChannel
+        // 创建客户端的 SocketChannel
         SocketChannel socketChannel = SocketChannel.open();
-        // 配置成非阻塞模式
+        // 配置成非阻塞模式, 只有非阻塞模式才能注册到 selector 上
         socketChannel.configureBlocking(false);
         Socket socket = socketChannel.socket();
         // 设置为长连接
@@ -193,6 +196,9 @@ public class Selector implements Selectable {
         boolean connected;
         try {
             // 连接服务端, 注意这里并没有开始真正连接, 或者说因为是非阻塞方式, 是发起一个连接
+            // 因为 socketChannel 设置成了非阻塞模式, 这里是一个非阻塞方法调用
+            // 如果 connected 为 true, 表示这次连接刚刚发起就连接成功了
+            // connect() 方法返回 false 表示不知道连接是否成功, 因为有可能连接正在进行
             connected = socketChannel.connect(address);
         } catch (UnresolvedAddressException e) {
             socketChannel.close();
@@ -201,19 +207,22 @@ public class Selector implements Selectable {
             socketChannel.close();
             throw e;
         }
-        // 注册连接事件
+        // 将该 socketChannel 注册到 nioSelector 上, 并监听其 OP_CONNECT 事件
         SelectionKey key = socketChannel.register(nioSelector, SelectionKey.OP_CONNECT);
-        // 会创建包括底层的 transportLayer
+        // 会创建 KafkaChannel 对象, KafkaChannel 是对一个 node 连接的封装
         KafkaChannel channel = channelBuilder.buildChannel(id, key, maxReceiveSize);
-        // 将 KafkaChannel 注册到 SelectionKey
+        // 将 KafkaChannel 放入 SelectionKey 的附件
         key.attach(channel);
-        // KSelector 维护了每个 nodeConnectionId 以及 KafkaChannel
+        // KSelector 维护了每个 nodeConnectionId 以及其对应的 KafkaChannel
         this.channels.put(id, channel);
 
+        // 如果连接立刻成功建立了, 那么就不会触发 nioSelector 的 OP_CONNECT 事件, 需要单独处理这次连接
         if (connected) {
             // OP_CONNECT won't trigger for immediately connected channels
             log.debug("Immediately connected to node {}", channel.id());
             immediatelyConnectedKeys.add(key);
+            // 这里(暂时)清空 interestOps, 表示 selector.select() 会忽略这个 key
+            // 因为已经立刻连接成功了, 所以不会发生 OP_CONNECT 事件
             key.interestOps(0);
         }
     }
@@ -223,7 +232,7 @@ public class Selector implements Selectable {
      * Use this on server-side, when a connection is accepted by a different thread but processed by the Selector
      * Note that we are not checking if the connection id is valid - since the connection already exists
      */
-    // 在这个 KSelector 上注册 OP_READ 事件
+    // 将 socketChannel 注册在这个 nioSelector 上, 并监听 OP_READ 事件
     public void register(String id, SocketChannel socketChannel) throws ClosedChannelException {
         // 将该 SocketChannel 的 OP_READ 事件注册到 KSelector 上
         SelectionKey key = socketChannel.register(nioSelector, SelectionKey.OP_READ);
@@ -236,6 +245,7 @@ public class Selector implements Selectable {
     /**
      * Interrupt the nioSelector if it is blocked waiting to do I/O.
      */
+    // wakeup() 方法会打断 NIO Selector 的阻塞方法 select() 使其立刻返回
     @Override
     public void wakeup() {
         this.nioSelector.wakeup();
@@ -244,6 +254,7 @@ public class Selector implements Selectable {
     /**
      * Close this selector and all associated connections
      */
+    // 关闭 nioSelector 及其关联的所有的连接 SocketChannel
     @Override
     public void close() {
         List<String> connections = new ArrayList<>(channels.keySet());
