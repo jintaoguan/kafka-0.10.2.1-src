@@ -196,8 +196,8 @@ public final class RecordAccumulator {
                 if (closed)
                     throw new IllegalStateException("Cannot send after the producer is closed.");
                 // 追加 record(这里已经是序列化之后的 key/value pair) 到 Deque<RecordBatch> 中去
-                // 如果返回值 RecordAppendResult 对象不是 null 则说明追加操作成功(成功将 record 追加到了队列的最后一个batch中)
-                // 如果返回值是 null, 则说明这是一个新创建的batch队列, 目前还没有可用的 batch, 我们将为其创建新的 batch 并放入队列.
+                // 如果返回值 RecordAppendResult 对象不是 null 则说明追加操作成功(成功将 record 追加到了队列的最后一个 batch 中)
+                // 如果返回值是 null, 则说明这是一个新创建的 batch 队列, 目前还没有可用的 batch, 我们将为其创建新的 batch 并放入队列
                 RecordAppendResult appendResult = tryAppend(timestamp, key, value, callback, dq);
                 if (appendResult != null)
                     return appendResult;

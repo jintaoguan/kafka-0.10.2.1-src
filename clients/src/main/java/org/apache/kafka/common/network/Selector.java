@@ -80,9 +80,10 @@ public class Selector implements Selectable {
     public static final long NO_IDLE_TIMEOUT_MS = -1;
     private static final Logger log = LoggerFactory.getLogger(Selector.class);
 
+    // Kselector 内部维护了一个 Java NIO Selector
     private final java.nio.channels.Selector nioSelector;
     // 维护了 ConnectionId 与 KafkaChannel 之间的映射关系, 表示生产者客户端与 Node 之间的网络连接
-    // KafkaChannel 是在 SocketChannel 上层的封装, 描述客户端连接的 socket channel
+    // KafkaChannel 是在 SocketChannel 上层的封装, 描述对客户端连接的 socket channel
     private final Map<String, KafkaChannel> channels;
     // 记录已经完全发送出去的请求
     private final List<Send> completedSends;
