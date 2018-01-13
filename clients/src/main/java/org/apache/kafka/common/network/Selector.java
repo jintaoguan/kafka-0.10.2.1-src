@@ -83,7 +83,7 @@ public class Selector implements Selectable {
 
     // Kselector 内部维护了一个 Java NIO Selector
     private final java.nio.channels.Selector nioSelector;
-    // 维护了 ConnectionId 与 KafkaChannel 之间的映射关系, 表示生产者客户端与 Node 之间的网络连接
+    // 维护了 NodeId 与 KafkaChannel 之间的映射关系, 表示生产者客户端与 Node 之间的网络连接
     // KafkaChannel 是在 SocketChannel 上层的封装, 描述对客户端连接的 socket channel
     private final Map<String, KafkaChannel> channels;
     // 记录已经完全发送出去的请求
@@ -171,11 +171,9 @@ public class Selector implements Selectable {
      * @throws IllegalStateException if there is already a connection for that id
      * @throws IOException if DNS resolution fails on the hostname or if the broker is down
      */
-    /**
-     * 客户端使用 KSelector 管理到多个 node 的连接并监听相应的 OP_CONNECT 方法
-     * 创建 KafkaChannel, 并添加到 KSelector 的 channels 集合中保存
-     *
-     */
+
+    // 客户端用法, 使用 KSelector 管理到多个 node 的连接并监听相应的 OP_CONNECT 方法
+    // 创建 KafkaChannel, 并添加到 KSelector 的 channels 集合中保存
     @Override
     public void connect(String id, InetSocketAddress address, int sendBufferSize, int receiveBufferSize) throws IOException {
         if (this.channels.containsKey(id))
@@ -199,6 +197,7 @@ public class Selector implements Selectable {
             // 因为 socketChannel 设置成了非阻塞模式, 这里是一个非阻塞方法调用
             // 如果 connected 为 true, 表示这次连接刚刚发起就连接成功了
             // connect() 方法返回 false 表示不知道连接是否成功, 因为有可能连接正在进行
+            // 在后面会通过调用 finishConnect() 方法确认连接是否建立了
             connected = socketChannel.connect(address);
         } catch (UnresolvedAddressException e) {
             socketChannel.close();
@@ -232,7 +231,7 @@ public class Selector implements Selectable {
      * Use this on server-side, when a connection is accepted by a different thread but processed by the Selector
      * Note that we are not checking if the connection id is valid - since the connection already exists
      */
-    // 将 socketChannel 注册在这个 nioSelector 上, 并监听 OP_READ 事件
+    // 服务器端用法, 将 socketChannel 注册在这个 nioSelector 上, 并监听 OP_READ 事件
     public void register(String id, SocketChannel socketChannel) throws ClosedChannelException {
         // 将该 SocketChannel 的 OP_READ 事件注册到 KSelector 上
         SelectionKey key = socketChannel.register(nioSelector, SelectionKey.OP_READ);
@@ -318,6 +317,7 @@ public class Selector implements Selectable {
      * @throws IllegalStateException If a send is given for which we have no existing connection or for which there is
      *         already an in-progress send
      */
+    // poll() 是真正执行网络 I/O 的地方, 它会调用 select()
     @Override
     public void poll(long timeout) throws IOException {
         if (timeout < 0)
