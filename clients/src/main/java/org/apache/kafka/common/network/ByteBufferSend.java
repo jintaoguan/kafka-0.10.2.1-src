@@ -52,7 +52,9 @@ public class ByteBufferSend implements Send {
     }
 
     @Override
+    // 将 ByteBufferSend 发送到 SocketChannel, 返回成功写入的字节数
     public long writeTo(GatheringByteChannel channel) throws IOException {
+        // 将 send 的多个 ByteBuffer 中数据一起写到 SocketChannel 中
         long written = channel.write(buffers);
         if (written < 0)
             throw new EOFException("Wrote negative bytes to channel. This shouldn't happen.");

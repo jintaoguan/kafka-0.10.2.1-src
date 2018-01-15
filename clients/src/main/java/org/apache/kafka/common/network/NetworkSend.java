@@ -21,6 +21,7 @@ import java.nio.ByteBuffer;
 /**
  * A size delimited Send that consists of a 4 byte network-ordered size N followed by N bytes of content
  */
+// NetworkSend 同 NetworkReceive 一样, 包含了 size 和 content 两部分 ByteBuffer, 而 content 是一个 ByteBuffer 数组
 public class NetworkSend extends ByteBufferSend {
 
     public NetworkSend(String destination, ByteBuffer buffer) {
