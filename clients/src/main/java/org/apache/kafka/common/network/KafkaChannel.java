@@ -126,6 +126,7 @@ public class KafkaChannel {
         return transportLayer.socketChannel().socket().getInetAddress();
     }
 
+    // 从 KafkaChannel 中取得 socket 的地址信息并返回
     public String socketDescription() {
         Socket socket = transportLayer.socketChannel().socket();
         if (socket.getInetAddress() == null)
@@ -133,21 +134,29 @@ public class KafkaChannel {
         return socket.getInetAddress().toString();
     }
 
+    // 设置这个 KafkaChannel 的 send 字段并关注 OP_WRITE 事件
+    // 这样当 SocketChannel 的 OP_WRITE 事件发生时就发送 Send
     public void setSend(Send send) {
+        // 如果之前还有 send 没有发送完则抛出异常
         if (this.send != null)
             throw new IllegalStateException("Attempt to begin a send operation with prior send operation still in progress.");
         this.send = send;
         this.transportLayer.addInterestOps(SelectionKey.OP_WRITE);
     }
 
+    // 读取 NetworkReceive 的核心方法, 从 socketChannel 读取一个 NetworkReceive 对象并返回
     public NetworkReceive read() throws IOException {
         NetworkReceive result = null;
 
+        // 先看上一次 read() 时产生的 receive 是否为 null, 如果不是 null, 说明上一次并未读取一个完整 NetworkReceive 对象
         if (receive == null) {
             receive = new NetworkReceive(maxReceiveSize, id);
         }
 
+        // 核心函数, 从 TransportLayer(Kafka 对 SocketChannel的封装) 中读取一个 NetworkReceive 对象
         receive(receive);
+        // 如果读取完成则将读取到的 NetworkReceive 对象作为 result 返回
+        // 如果读取未完成则直接返回 null, 下一次触发 OP_READ 事件时继续填充这个 NetworkReceive 对象并返回
         if (receive.complete()) {
             receive.payload().rewind();
             result = receive;
@@ -156,6 +165,7 @@ public class KafkaChannel {
         return result;
     }
 
+    // 发送 Send 的核心方法, 如果没有完全发送完则返回 null, 发送完成则返回 Send 对象
     public Send write() throws IOException {
         Send result = null;
         if (send != null && send(send)) {
@@ -165,12 +175,18 @@ public class KafkaChannel {
         return result;
     }
 
+    // 从 transportLayer(socketChannel) 读取数据到 NetworkReceive 对象中去
     private long receive(NetworkReceive receive) throws IOException {
         return receive.readFrom(transportLayer);
     }
 
+    // 发送 send 的核心方法
     private boolean send(Send send) throws IOException {
+        // 如果 send 在一次 write() 调用时没有发送完, SelectionKey 的 OP_WRITE 事件没有取消
+        // 就会继续监听此 Channel 的 OP_WRITE 事件直到整个 send 发送完成
         send.writeTo(transportLayer);
+        // 如果 send 发送完成则不再关注这个 SocketChannel 的 OP_WRITE 事件
+        // 判断发送是否完成是通过查看 ByteBuffer 中是否还有剩余字节来判断的
         if (send.completed())
             transportLayer.removeInterestOps(SelectionKey.OP_WRITE);
 

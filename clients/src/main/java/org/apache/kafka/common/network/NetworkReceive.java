@@ -86,6 +86,7 @@ public class NetworkReceive implements Receive {
     @Deprecated
     public long readFromReadableChannel(ReadableByteChannel channel) throws IOException {
         int read = 0;
+        // 这里的条件 size.hasRemaining() 用于这次调用是读取一个新的 NetworkReceive 还是继续上一次未完成的读取
         if (size.hasRemaining()) {
             // 从 channel 读取 size 数据, size 这个 ByteBuffer 已经强制为 4 bytes 大小
             int bytesRead = channel.read(size);

@@ -47,6 +47,8 @@ public class PlaintextTransportLayer implements TransportLayer {
     }
 
     @Override
+    // 检测其 SocketChannel 对象是否连接完成
+    // 如果连接完成则不再关注其 OP_CONNECT 事件, 转而关注其 OP_READ 事件 (为什么不关注其 OP_WRITE 事件?)
     public boolean finishConnect() throws IOException {
         boolean connected = socketChannel.finishConnect();
         if (connected)

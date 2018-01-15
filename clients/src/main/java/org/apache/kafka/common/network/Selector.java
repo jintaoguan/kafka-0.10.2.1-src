@@ -94,9 +94,11 @@ public class Selector implements Selectable {
     // 用来记录调用 socketChannel.connect() 后立刻建立连接的 SelectionKey, 因为它们没有触发 nioSelector 的 OP_CONNECT 事件
     private final Set<SelectionKey> immediatelyConnectedKeys;
     private final Map<String, KafkaChannel> closingChannels;
+    // 记录一次 poll() 过程中发现的断开连接的 nodeId
     private final List<String> disconnected;
+    // 记录一次 poll() 过程中发现的新建立连接的 nodeId
     private final List<String> connected;
-    // 记录向哪些 Node 发送的请求失败了
+    // 记录发送的请求失败了的 nodeId
     private final List<String> failedSends;
     private final Time time;
     private final SelectorMetrics sensors;
@@ -272,6 +274,7 @@ public class Selector implements Selectable {
      * Queue the given request for sending in the subsequent {@link #poll(long)} calls
      * @param send The request to send
      */
+    // 核心方法, 发送 Send
     public void send(Send send) {
         String connectionId = send.destination();
         if (closingChannels.containsKey(connectionId))
@@ -405,9 +408,9 @@ public class Selector implements Selectable {
                     channel.prepare();
 
                 /* if channel is ready read from any connections that have readable data */
-                // 处理 OP_READ 事件
+                // 处理 OP_READ 事件的核心逻辑
                 if (channel.ready() && key.isReadable() && !hasStagedReceive(channel)) {
-                    // 这里做的事情是读取一个完整的 NetworkReceive 并将其添加到 stagedReceives 中保存
+                    // 这里做的事情是读取一个或多个完整的 NetworkReceive 对象并将其添加到 stagedReceives 中保存
                     // 如果读取不到一个完整的 NetworkReceive 则返回 null, 下次处理 OP_READ 时, 继续读取
                     NetworkReceive networkReceive;
                     while ((networkReceive = channel.read()) != null)
@@ -415,9 +418,9 @@ public class Selector implements Selectable {
                 }
 
                 /* if channel is ready write to any sockets that have space in their buffer and for which we have data */
-                // 处理 OP_WRITE 事件
+                // 处理 OP_WRITE 事件的核心逻辑
                 if (channel.ready() && key.isWritable()) {
-                    // 这里做的事情调用 write() 方法发送 Send 对象, 如果没有发送完成, 则返回 null
+                    // 这里做的事情调用 write() 方法将 KafkaChannel 的 send 字段发送出去, 如果没有发送完成, 则返回 null
                     // 如果发送完成则返回 Send 对象, 加入 completedSends 集合, 等待后续处理
                     Send send = channel.write();
                     if (send != null) {
@@ -437,6 +440,7 @@ public class Selector implements Selectable {
                     log.debug("Connection with {} disconnected", desc, e);
                 else
                     log.warn("Unexpected error from {}; closing connection", desc, e);
+                // 如果抛出异常则关闭该 socketChannel
                 close(channel, true);
             }
         }
@@ -468,6 +472,7 @@ public class Selector implements Selectable {
         mute(channel);
     }
 
+    // 使 selector 不再关注这个 SocketChannel 的 OP_READ 事件
     private void mute(KafkaChannel channel) {
         channel.mute();
     }
@@ -478,17 +483,20 @@ public class Selector implements Selectable {
         unmute(channel);
     }
 
+    // 使 selector 关注这个 SocketChannel 的 OP_READ 事件
     private void unmute(KafkaChannel channel) {
         channel.unmute();
     }
 
     @Override
+    // 使 selector 不再关注所有 SocketChannel 的 OP_READ 事件
     public void muteAll() {
         for (KafkaChannel channel : this.channels.values())
             mute(channel);
     }
 
     @Override
+    // 使 selector 关注所有 SocketChannel 的 OP_READ 事件
     public void unmuteAll() {
         for (KafkaChannel channel : this.channels.values())
             unmute(channel);
@@ -514,9 +522,12 @@ public class Selector implements Selectable {
     /**
      * Clear the results from the prior poll
      */
+    // 清楚上一次 poll() 的结果
     private void clear() {
+        // 清楚完成的 send 和 receive 集合
         this.completedSends.clear();
         this.completedReceives.clear();
+        // 清楚上一次发现的断开的连接和新建立的连接
         this.connected.clear();
         this.disconnected.clear();
         // Remove closed channels after all their staged receives have been processed or if a send was requested
@@ -541,6 +552,7 @@ public class Selector implements Selectable {
      * @throws IllegalArgumentException
      * @throws IOException
      */
+    // NIO Selector 真正的 select() 方法
     private int select(long ms) throws IOException {
         if (ms < 0L)
             throw new IllegalArgumentException("timeout should be >= 0");
@@ -554,6 +566,7 @@ public class Selector implements Selectable {
     /**
      * Close the connection identified by the given id
      */
+    // 关闭与给定 nodeId 的 SocketChannel
     public void close(String id) {
         KafkaChannel channel = this.channels.get(id);
         if (channel != null)
@@ -713,6 +726,7 @@ public class Selector implements Selectable {
         this.sensors.recordBytesReceived(channel.id(), networkReceive.payload().limit());
     }
 
+    // metrics 相关, 略过
     private class SelectorMetrics {
         private final Metrics metrics;
         public final Sensor connectionClosed;
