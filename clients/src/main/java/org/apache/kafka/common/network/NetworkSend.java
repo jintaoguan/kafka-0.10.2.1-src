@@ -28,6 +28,8 @@ public class NetworkSend extends ByteBufferSend {
         super(destination, sizeDelimit(buffer));
     }
 
+    // 传入需要发送的 ByteBuffer, 分别构造 size buffer 和 content buffer 并作为数组返回
+    // 先后关系很重要, 因为后面会将 ByteBuffer[] 集中写入 GatheringByteChannel
     private static ByteBuffer[] sizeDelimit(ByteBuffer buffer) {
         return new ByteBuffer[] {sizeBuffer(buffer.remaining()), buffer};
     }

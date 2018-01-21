@@ -21,7 +21,12 @@ import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.clients.producer.RecordMetadata;
 
+import java.net.InetSocketAddress;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.SocketChannel;
 import java.util.Properties;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
 public class MyProducerDemo extends Thread {
@@ -30,9 +35,35 @@ public class MyProducerDemo extends Thread {
     private final Boolean isAsync;
 
     public static void main(String[] argc) throws Exception {
+        /*
         MyProducerDemo producer = new MyProducerDemo("test-xxx-123", true);
         producer.start();
         Thread.sleep(1000);
+        */
+
+
+        Selector nioSelector = java.nio.channels.Selector.open();
+        SocketChannel socketChannel = SocketChannel.open();
+        socketChannel.configureBlocking(false);
+
+        boolean connected = socketChannel.connect(new InetSocketAddress("localhost", 9092));
+        System.out.println(connected);
+        SelectionKey key = socketChannel.register(nioSelector, SelectionKey.OP_CONNECT);
+        System.out.println(key);
+
+        int readyKeys = nioSelector.select();
+        if (readyKeys > 0) {
+            Set<SelectionKey> ioKeys = nioSelector.selectedKeys();
+            for (SelectionKey ioKey : ioKeys) {
+                if (ioKey.isConnectable()) {
+                    System.out.println(ioKey);
+                    connected = ((SocketChannel)ioKey.channel()).finishConnect();
+                    System.out.println(connected);
+                }
+            }
+        }
+
+
     }
 
     public MyProducerDemo(String topic, Boolean isAsync) {

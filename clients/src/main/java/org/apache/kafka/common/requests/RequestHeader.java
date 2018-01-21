@@ -23,6 +23,7 @@ import org.apache.kafka.common.protocol.types.Struct;
 /**
  * The header for a request in the Kafka protocol
  */
+// 消息头的组成
 public class RequestHeader extends AbstractRequestResponse {
 
     private static final Field API_KEY_FIELD = REQUEST_HEADER.get("api_key");

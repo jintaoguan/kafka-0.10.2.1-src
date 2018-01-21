@@ -180,7 +180,7 @@ public class KafkaChannel {
         return receive.readFrom(transportLayer);
     }
 
-    // 发送 send 的核心方法
+    // 发送 send 的核心方法, 返回结果表示是否完成发送
     private boolean send(Send send) throws IOException {
         // 如果 send 在一次 write() 调用时没有发送完, SelectionKey 的 OP_WRITE 事件没有取消
         // 就会继续监听此 Channel 的 OP_WRITE 事件直到整个 send 发送完成

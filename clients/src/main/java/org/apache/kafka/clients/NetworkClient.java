@@ -69,8 +69,10 @@ public class NetworkClient implements KafkaClient {
     private static final Logger log = LoggerFactory.getLogger(NetworkClient.class);
 
     /* the selector used to perform network i/o */
+    // 网络 I/O 调度的核心 KSelector
     private final Selectable selector;
 
+    // 更新 metadata 数据
     private final MetadataUpdater metadataUpdater;
 
     private final Random randOffset;
@@ -79,12 +81,16 @@ public class NetworkClient implements KafkaClient {
     private final ClusterConnectionStates connectionStates;
 
     /* the set of requests currently being sent or awaiting a response */
+    // 缓存已经发出去但是还没有收到相应的 ClientRequest
+    // 底层由 Map<String, Deque<ClientRequest>> 对象实现, key 是 nodeId, value 是发送到该 node 的 ClientRequest 对象集合
     private final InFlightRequests inFlightRequests;
 
     /* the socket send buffer size in bytes */
+    // 发送数据缓冲区大小
     private final int socketSendBuffer;
 
     /* the socket receive size buffer in bytes */
+    // 接受数据缓冲区大小
     private final int socketReceiveBuffer;
 
     /* the client id used to identify this client in requests to the server */
@@ -106,10 +112,11 @@ public class NetworkClient implements KafkaClient {
      */
     private final boolean discoverBrokerVersions;
 
+    // node 与其 api version 的映射
     private final Map<String, NodeApiVersions> nodeApiVersions = new HashMap<>();
-
+    // 需要查询 api version 的 node 的集合
     private final Set<String> nodesNeedingApiVersionsFetch = new HashSet<>();
-
+    // 放弃放松的 ClientResponse 的集合
     private final List<ClientResponse> abortedSends = new LinkedList<>();
 
     public NetworkClient(Selectable selector,
@@ -183,6 +190,7 @@ public class NetworkClient implements KafkaClient {
      * @param now The current timestamp
      * @return True if we are ready to send to the given node
      */
+    // 发起与给定 node 的连接
     @Override
     public boolean ready(Node node, long now) {
         if (node.isEmpty())
@@ -193,6 +201,7 @@ public class NetworkClient implements KafkaClient {
 
         if (connectionStates.canConnect(node.idString(), now))
             // if we are interested in sending to a node and we don't have a connection to it, initiate one
+            // 发起连接
             initiateConnect(node, now);
 
         return false;
@@ -279,7 +288,7 @@ public class NetworkClient implements KafkaClient {
         doSend(clientRequest, true, now);
     }
 
-    // 发送请求到 server 的方法, TODO 详细讲解
+    // 发送 ClientRequest 对象到服务器的方法
     private void doSend(ClientRequest clientRequest, boolean isInternalRequest, long now) {
         String nodeId = clientRequest.destination();
         if (!isInternalRequest) {
@@ -295,6 +304,7 @@ public class NetworkClient implements KafkaClient {
         AbstractRequest request = null;
         AbstractRequest.Builder<?> builder = clientRequest.requestBuilder();
         try {
+            // 从 nodeApiVersions 得到该 node 的 api version 信息
             NodeApiVersions versionInfo = nodeApiVersions.get(nodeId);
             // Note: if versionInfo is null, we have no server version information. This would be
             // the case when sending the initial ApiVersionRequest which fetches the version
@@ -309,6 +319,7 @@ public class NetworkClient implements KafkaClient {
             }
             // The call to build may also throw UnsupportedVersionException, if there are essential
             // fields that cannot be represented in the chosen version.
+            // 构造 request
             request = builder.build();
         } catch (UnsupportedVersionException e) {
             // If the version is not supported, skip sending the request over the wire.
@@ -331,7 +342,10 @@ public class NetworkClient implements KafkaClient {
                     header.apiVersion(), request, nodeId);
             }
         }
+        // 根据 request 构造网络 I/0 底层使用的 Send 对象
         Send send = request.toSend(nodeId, header);
+        // 构造 InFlightRequest 对象并放入 InFlightRequests 队列
+        // 就是说为每一个发送出去的 Send 创建一个 InFlightRequest 用于后续处理
         InFlightRequest inFlightRequest = new InFlightRequest(
                 header,
                 clientRequest.createdTimeMs(),
@@ -342,6 +356,7 @@ public class NetworkClient implements KafkaClient {
                 send,
                 now);
         this.inFlightRequests.add(inFlightRequest);
+        // 利用 KSelector 发送 Send 对象, 这里是整个客户端发送消息的核心方法
         selector.send(inFlightRequest.send);
     }
 

@@ -81,7 +81,7 @@ public class Selector implements Selectable {
     public static final long NO_IDLE_TIMEOUT_MS = -1;
     private static final Logger log = LoggerFactory.getLogger(Selector.class);
 
-    // Kselector 内部维护了一个 Java NIO Selector
+    // Kselector 内部维护了一个 NSelector
     private final java.nio.channels.Selector nioSelector;
     // 维护了 NodeId 与 KafkaChannel 之间的映射关系, 表示生产者客户端与 Node 之间的网络连接
     // KafkaChannel 是在 SocketChannel 上层的封装, 描述对客户端连接的 socket channel
@@ -93,6 +93,7 @@ public class Selector implements Selectable {
     private final Map<KafkaChannel, Deque<NetworkReceive>> stagedReceives;
     // 用来记录调用 socketChannel.connect() 后立刻建立连接的 SelectionKey, 因为它们没有触发 nioSelector 的 OP_CONNECT 事件
     private final Set<SelectionKey> immediatelyConnectedKeys;
+    // 正在关闭的 socketChannel 的集合
     private final Map<String, KafkaChannel> closingChannels;
     // 记录一次 poll() 过程中发现的断开连接的 nodeId
     private final List<String> disconnected;
@@ -176,6 +177,8 @@ public class Selector implements Selectable {
 
     // 客户端用法, 使用 KSelector 管理到多个 node 的连接并监听相应的 OP_CONNECT 方法
     // 创建 KafkaChannel, 并添加到 KSelector 的 channels 集合中保存
+    // TODO  问题: 通常先注册 OP_CONNECT 再调用 connect(), 这里为什么先调用 connect() 再注册 OP_CONNECT？
+    // TODO       如果先注册 OP_CONNECT 再调用 connect(), 是否可以省略掉 immediatelyConnectedKeys 集合？
     @Override
     public void connect(String id, InetSocketAddress address, int sendBufferSize, int receiveBufferSize) throws IOException {
         if (this.channels.containsKey(id))
@@ -274,7 +277,7 @@ public class Selector implements Selectable {
      * Queue the given request for sending in the subsequent {@link #poll(long)} calls
      * @param send The request to send
      */
-    // 核心方法, 发送 Send
+    // 将 send 放入这个 nodeId 对应的 KafkaChannel 并等待下次 poll() 方法将其发送
     public void send(Send send) {
         String connectionId = send.destination();
         if (closingChannels.containsKey(connectionId))
@@ -385,7 +388,7 @@ public class Selector implements Selectable {
                 /* complete any connections that have finished their handshake (either normally or immediately) */
                 // 这部分是对连接成功事件进行处理, 两种情况, 1) 有 OP_CONNECT 事件 2) 发起连接时, 立刻连接成功
                 if (isImmediatelyConnected || key.isConnectable()) {
-                    // finishConnect() 方法先检测 socketChannel 的连接是否建立完成
+                    // finishConnect() 方法完成连接 SocketChannel 的过程
                     // 如果连接建立成功则取消关注 OP_CONNECT 事件, 开始关注 OP_READ 事件
                     if (channel.finishConnect()) {
                         // 将该连接的 nodeId 加入 connected 集合
