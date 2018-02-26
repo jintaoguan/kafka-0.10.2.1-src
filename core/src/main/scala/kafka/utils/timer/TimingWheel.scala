@@ -100,14 +100,19 @@ import java.util.concurrent.atomic.AtomicInteger
 private[timer] class TimingWheel(tickMs: Long, wheelSize: Int, startMs: Long, taskCounter: AtomicInteger, queue: DelayQueue[TimerTaskList]) {
 
   private[this] val interval = tickMs * wheelSize
+  // 每个 bucket 中有一个链表 TimerTaskList, 每个链表元素是 TimerTaskEntry, TimerTaskEntry 封装了任务 TimerTask
   private[this] val buckets = Array.tabulate[TimerTaskList](wheelSize) { _ => new TimerTaskList(taskCounter) }
 
+  // 时间轮的指针
   private[this] var currentTime = startMs - (startMs % tickMs) // rounding down to multiple of tickMs
 
   // overflowWheel can potentially be updated and read by two concurrent threads through add().
   // Therefore, it needs to be volatile due to the issue of Double-Checked Locking pattern with JVM
   @volatile private[this] var overflowWheel: TimingWheel = null
 
+  // 向当前层 TimingWheel 添加其对应的上层 TimingWheel
+  // 上层的粒度 tickMs 是当前层 TimingWheel 的整个 interval
+  // 注意 queue 是 DelayQueue 类型, 整个层级时间轮共用一个任务队列
   private[this] def addOverflowWheel(): Unit = {
     synchronized {
       if (overflowWheel == null) {
