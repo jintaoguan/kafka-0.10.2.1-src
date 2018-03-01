@@ -117,10 +117,12 @@ private[timer] class TimerTaskList(taskCounter: AtomicInteger) extends Delayed {
     }
   }
 
+  // Delayed 接口需要实现 getDelay(unit: TimeUnit) 方法, 计算距离过期的剩余时间
   def getDelay(unit: TimeUnit): Long = {
     unit.convert(max(getExpiration - Time.SYSTEM.hiResClockMs, 0), TimeUnit.MILLISECONDS)
   }
 
+  // Delayed 接口需要实现 compareTo(d: Delayed) 方法, 在 PriorityQueue 中根据时间排序, 距离过期时间近的排在前面
   def compareTo(d: Delayed): Int = {
 
     val other = d.asInstanceOf[TimerTaskList]

@@ -127,22 +127,30 @@ private[timer] class TimingWheel(tickMs: Long, wheelSize: Int, startMs: Long, ta
     }
   }
 
+  // 添加一个 TimerTaskEntry 到 TimingWheel 中去
   def add(timerTaskEntry: TimerTaskEntry): Boolean = {
+    // 这里的 expirationMs 是绝对过期时间, 即过期时间戳
     val expiration = timerTaskEntry.expirationMs
 
     if (timerTaskEntry.cancelled) {
       // Cancelled
+      // 任务已经被取消
       false
     } else if (expiration < currentTime + tickMs) {
       // Already expired
+      // 任务已经到期
       false
     } else if (expiration < currentTime + interval) {
       // Put in its own bucket
+      // 任务在当前级 TimingWheel 的时间跨度范围内
+      // 按照任务的到期时间查找此任务属于的时间格
       val virtualId = expiration / tickMs
       val bucket = buckets((virtualId % wheelSize.toLong).toInt)
+      // 将 TimerTaskEntry 加入到对应的 bucket 中, 即加入 TimerTaskList
       bucket.add(timerTaskEntry)
 
       // Set the bucket expiration time
+      // 更新该 TimerTaskList 对应的过期时间戳
       if (bucket.setExpiration(virtualId * tickMs)) {
         // The bucket needs to be enqueued because it was an expired bucket
         // We only need to enqueue the bucket when its expiration time has changed, i.e. the wheel has advanced
@@ -154,17 +162,23 @@ private[timer] class TimingWheel(tickMs: Long, wheelSize: Int, startMs: Long, ta
       true
     } else {
       // Out of the interval. Put it into the parent timer
+      // 任务不在当前级 TimingWheel 的时间跨度范围内, 则放入上一级 TimingWheel 中
       if (overflowWheel == null) addOverflowWheel()
       overflowWheel.add(timerTaskEntry)
     }
   }
 
   // Try to advance the clock
+  // 尝试推进当前时间轮的表针 currentTime 到 timeMs 之前最近的 bucket 的时刻
+  // 同时也类似地推进上层的时间轮的表针
   def advanceClock(timeMs: Long): Unit = {
+    // 如果推进时间 timeMs 大于等于下一个 bucket 的过期时间
+    // 则推进 currentTime 到下个对应的 bucket, 有可能推进一个或者多个 bucket
     if (timeMs >= currentTime + tickMs) {
       currentTime = timeMs - (timeMs % tickMs)
 
       // Try to advance the clock of the overflow wheel if present
+      // 推进上一层的 TimingWheel
       if (overflowWheel != null) overflowWheel.advanceClock(currentTime)
     }
   }

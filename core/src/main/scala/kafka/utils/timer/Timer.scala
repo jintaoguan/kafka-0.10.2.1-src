@@ -58,13 +58,18 @@ class SystemTimer(executorName: String,
                   startMs: Long = Time.SYSTEM.hiResClockMs) extends Timer {
 
   // timeout timer
+  // 由这个固定线程数的线程池执行到期任务
   private[this] val taskExecutor = Executors.newFixedThreadPool(1, new ThreadFactory() {
     def newThread(runnable: Runnable): Thread =
       Utils.newThread("executor-"+executorName, runnable, false)
   })
 
+  // 各个层级 TimingWheel 共用 delayQueue 存储 TimerTaskList
+  // 其主要作用是阻塞推进时间轮表针的线程 ExpiredOperationReaper
   private[this] val delayQueue = new DelayQueue[TimerTaskList]()
+  // 各个层级 TimingWheel 共用 taskCounter 任务个数计数器
   private[this] val taskCounter = new AtomicInteger(0)
+  // 最底层的 TimingWheel, 即时间粒度最小的 TimingWheel
   private[this] val timingWheel = new TimingWheel(
     tickMs = tickMs,
     wheelSize = wheelSize,
@@ -78,15 +83,19 @@ class SystemTimer(executorName: String,
   private[this] val readLock = readWriteLock.readLock()
   private[this] val writeLock = readWriteLock.writeLock()
 
+  // 添加 TimerTask 到 TimingWheel 中去, 如果任务已经到期则将任务提交给 taskExecutor 执行
+  // 如果没有到期则调用 TimingWheel.add() 方法等待到后期执行
   def add(timerTask: TimerTask): Unit = {
     readLock.lock()
     try {
+      // 计算任务到期时间, 并将 TimerTask 封装成 TimerTaskEntry
       addTimerTaskEntry(new TimerTaskEntry(timerTask, timerTask.delayMs + Time.SYSTEM.hiResClockMs))
     } finally {
       readLock.unlock()
     }
   }
 
+  // 向 TimingWheel 中加入一个 TimerTaskEntry, 如果该 TimerTaskEntry 已经过期则立刻执行
   private def addTimerTaskEntry(timerTaskEntry: TimerTaskEntry): Unit = {
     if (!timingWheel.add(timerTaskEntry)) {
       // Already expired or cancelled
@@ -95,17 +104,25 @@ class SystemTimer(executorName: String,
     }
   }
 
+  // 高阶函数, 用于作为参数传给另一个函数
   private[this] val reinsert = (timerTaskEntry: TimerTaskEntry) => addTimerTaskEntry(timerTaskEntry)
 
   /*
    * Advances the clock if there is an expired bucket. If there isn't any expired bucket when called,
    * waits up to timeoutMs before giving up.
    */
+  // 核心方法
+  // advanceClock() 方法完成了 TimingWheel 的表针的推进, 同时对到期的 TimerTaskList 中的任务进行处理
+  // 如果 TimerTaskList 到期, 但是其中的某些任务未到期, 会将未到期的任务进行降级, 添加到低层次的 TimingWheel 中继续等待
+  // 如果任务到期了, 则提交到 taskExecutor 线程池中执行
   def advanceClock(timeoutMs: Long): Boolean = {
+    // 从 delayQueue 中获取过期的 bucket 即 TimerTaskList
+    // 如果没有过期的 bucket 则最多阻塞等待 timeoutMs 再返回
     var bucket = delayQueue.poll(timeoutMs, TimeUnit.MILLISECONDS)
     if (bucket != null) {
       writeLock.lock()
       try {
+        // 核心步骤
         while (bucket != null) {
           timingWheel.advanceClock(bucket.getExpiration())
           bucket.flush(reinsert)
