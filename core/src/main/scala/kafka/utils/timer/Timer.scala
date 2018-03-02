@@ -111,13 +111,13 @@ class SystemTimer(executorName: String,
    * Advances the clock if there is an expired bucket. If there isn't any expired bucket when called,
    * waits up to timeoutMs before giving up.
    */
-  // 核心方法
+  // 核心方法, 将 SystemTimer 推进 timeoutMs 毫秒
   // advanceClock() 方法完成了 TimingWheel 的表针的推进, 同时对到期的 TimerTaskList 中的任务进行处理
   // 如果 TimerTaskList 到期, 但是其中的某些任务未到期, 会将未到期的任务进行降级, 添加到低层次的 TimingWheel 中继续等待
   // 如果任务到期了, 则提交到 taskExecutor 线程池中执行
   def advanceClock(timeoutMs: Long): Boolean = {
-    // 从 delayQueue 中获取过期的 bucket 即 TimerTaskList
-    // 如果没有过期的 bucket 则最多阻塞等待 timeoutMs 再返回
+    // 从 delayQueue 中获取到期的 bucket 即 TimerTaskList
+    // 如果没有到期的 bucket 则最多阻塞等待 timeoutMs 再返回
     var bucket = delayQueue.poll(timeoutMs, TimeUnit.MILLISECONDS)
     if (bucket != null) {
       writeLock.lock()

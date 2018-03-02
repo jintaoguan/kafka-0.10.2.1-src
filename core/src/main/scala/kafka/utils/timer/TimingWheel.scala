@@ -128,6 +128,8 @@ private[timer] class TimingWheel(tickMs: Long, wheelSize: Int, startMs: Long, ta
   }
 
   // 添加一个 TimerTaskEntry 到 TimingWheel 中去
+  // 值得注意的是, 规则是根据 TimerTaskEntry 的到期时间戳 expirationMs 放入时间格为 [t, t + tickMs) 的 bucket
+  // 且满足 t <= expirationMs < t + tickMs
   def add(timerTaskEntry: TimerTaskEntry): Boolean = {
     // 这里的 expirationMs 是绝对过期时间, 即过期时间戳
     val expiration = timerTaskEntry.expirationMs
@@ -151,6 +153,7 @@ private[timer] class TimingWheel(tickMs: Long, wheelSize: Int, startMs: Long, ta
 
       // Set the bucket expiration time
       // 更新该 TimerTaskList 对应的过期时间戳
+      // 如果没更新成功则说明该 TimerTaskList 不是之前使用过已过期的 TimerTaskList
       if (bucket.setExpiration(virtualId * tickMs)) {
         // The bucket needs to be enqueued because it was an expired bucket
         // We only need to enqueue the bucket when its expiration time has changed, i.e. the wheel has advanced

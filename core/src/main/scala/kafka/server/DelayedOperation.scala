@@ -374,6 +374,7 @@ class DelayedOperationPurgatory[T <: DelayedOperation](purgatoryName: String,
     "ExpirationReaper-%d".format(brokerId),
     false) {
 
+    // ExpiredOperationReaper 线程无限循环, 每次将 Timer 推进 200 ms
     override def doWork() {
       advanceClock(200L)
     }

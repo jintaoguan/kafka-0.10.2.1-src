@@ -34,6 +34,7 @@ private[timer] class TimerTaskList(taskCounter: AtomicInteger) extends Delayed {
   root.next = root
   root.prev = root
 
+  // expiration 是到期时间戳
   private[this] val expiration = new AtomicLong(-1L)
 
   // Set the bucket's expiration time
