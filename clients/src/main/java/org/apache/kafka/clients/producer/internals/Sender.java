@@ -117,7 +117,7 @@ public class Sender implements Runnable {
     /**
      * The main run loop for the sender thread
      */
-    // sender.wakeup() 到 run() 的 调用过程是什么？
+    // Sender 线程启动后进入这里
     public void run() {
         log.debug("Starting Kafka producer I/O thread.");
 
